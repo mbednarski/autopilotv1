@@ -21,7 +21,8 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+# include "stdio.h"
+#include "string.h"
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -56,6 +57,55 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
+int __io_putchar(int ch)
+{
+	HAL_UART_Transmit(&huart2, (uint8_t*)&ch, 1, HAL_MAX_DELAY);
+	return 1;
+}
+
+
+# define COMMAND_MAX_LENGTH 40
+static char command_buffer[COMMAND_MAX_LENGTH + 1];
+static uint32_t command_length;
+
+#define CMD_TEST_LED_ON "LED:TEST:1"
+#define CMD_TEST_LED_OFF "LED:TEST:0"
+
+void command_append(uint8_t value)
+{
+	if(value == '\r' || value == '\n')
+	{
+		if(command_length > 0 )
+		{
+			command_buffer[command_length] = '\0';
+			command_length = 0;
+
+			if(strcmp(command_buffer, CMD_TEST_LED_ON) == 0)
+			{
+				printf("ACK:%s\r\n", command_buffer);
+				HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+			}
+			else if(strcmp(command_buffer, CMD_TEST_LED_OFF) == 0)
+			{
+				printf("ACK:%s\r\n", command_buffer);
+				HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+			}
+			else
+			{
+				printf("ERROR: Unknown Command: %s\r\n", command_buffer);
+			}
+		}
+	}
+	else
+	{
+		if (command_length == COMMAND_MAX_LENGTH)
+		{
+			command_length = 0;
+		}
+		command_buffer[command_length++] = value;
+
+	}
+}
 
 /* USER CODE END 0 */
 
@@ -90,13 +140,19 @@ int main(void)
   MX_GPIO_Init();
   MX_USART2_UART_Init();
   /* USER CODE BEGIN 2 */
-
+  printf("STARTED");
   /* USER CODE END 2 */
 
   /* Infinite loop */
   /* USER CODE BEGIN WHILE */
   while (1)
   {
+	  uint8_t uartValue = 0xFF;
+	  HAL_StatusTypeDef status = HAL_UART_Receive(&huart2, &uartValue, 1, 0);
+	  if (status == HAL_OK)
+	  {
+		  command_append(uartValue);
+	  }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
