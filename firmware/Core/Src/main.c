@@ -66,7 +66,6 @@ int __io_putchar(int ch)
 	return 1;
 }
 
-
 # define COMMAND_MAX_LENGTH 40
 static char command_buffer[COMMAND_MAX_LENGTH + 1];
 static uint32_t command_length;
@@ -149,6 +148,8 @@ int main(void)
 
 
   int16_t prev_state_hdg_bug = 0;
+  GPIO_PinState prev_state_hdg_reset = GPIO_PIN_SET;
+
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -170,14 +171,12 @@ int main(void)
 		  prev_state_hdg_bug = state_hdg_bug;
 	  }
 
-	  if(HAL_GPIO_ReadPin(BTN_HDG_RESET_GPIO_Port, BTN_HDG_RESET_Pin) == GPIO_PIN_RESET)
+ 	  GPIO_PinState state_hdg_reset = HAL_GPIO_ReadPin(BTN_HDG_RESET_GPIO_Port, BTN_HDG_RESET_Pin);
+	  if(state_hdg_reset == GPIO_PIN_RESET && prev_state_hdg_reset == GPIO_PIN_SET)
 	  {
 		  printf("HDG:RESET\r\n");
 	  }
-	  else {
-
-		  printf("HDG:SET\r\n");
-	  }
+	  prev_state_hdg_reset = state_hdg_reset;
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -350,12 +349,12 @@ static void MX_GPIO_Init(void)
 
   /*Configure GPIO pin : BTN_HDG_RESET_Pin */
   GPIO_InitStruct.Pin = BTN_HDG_RESET_Pin;
-  GPIO_InitStruct.Mode = GPIO_MODE_IT_RISING;
-  GPIO_InitStruct.Pull = GPIO_PULLUP;
+  GPIO_InitStruct.Mode = GPIO_MODE_INPUT;
+  GPIO_InitStruct.Pull = GPIO_NOPULL;
   HAL_GPIO_Init(BTN_HDG_RESET_GPIO_Port, &GPIO_InitStruct);
 
   /* EXTI interrupt init*/
-  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 0, 0);
+  HAL_NVIC_SetPriority(EXTI4_15_IRQn, 3, 0);
   HAL_NVIC_EnableIRQ(EXTI4_15_IRQn);
 
   /* USER CODE BEGIN MX_GPIO_Init_2 */

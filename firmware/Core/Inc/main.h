@@ -68,7 +68,6 @@ void Error_Handler(void);
 #define LD2_GPIO_Port GPIOA
 #define BTN_HDG_RESET_Pin GPIO_PIN_8
 #define BTN_HDG_RESET_GPIO_Port GPIOC
-#define BTN_HDG_RESET_EXTI_IRQn EXTI4_15_IRQn
 #define TMS_Pin GPIO_PIN_13
 #define TMS_GPIO_Port GPIOA
 #define TCK_Pin GPIO_PIN_14
