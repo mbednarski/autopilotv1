@@ -10,8 +10,19 @@ namespace SimpleUartReceiver
     {
         // ===== PROTOCOL CONSTANTS (must match STM32 side) =====
         private const byte PROTO_START = 0xAA;
+
+        // Heading control (0x10-0x1F range)
         private const byte CMD_HDG_RESET = 0x10;
         private const byte CMD_HDG_SET = 0x11;
+
+        // Altitude control (0x20-0x2F range)
+        private const byte CMD_ALT_RESET = 0x20;
+        private const byte CMD_ALT_SET = 0x21;
+
+        // Vertical Speed control (0x30-0x3F range)
+        private const byte CMD_VS_RESET = 0x30;
+        private const byte CMD_VS_SET = 0x31;
+
         private const int FRAME_SIZE = 4;
 
         private static SerialPort _serialPort;
@@ -210,6 +221,7 @@ namespace SimpleUartReceiver
 
             switch (command)
             {
+                // ===== HEADING CONTROL =====
                 case CMD_HDG_RESET:
                     // HDG:RESET always has operand = 0x00
                     Console.WriteLine($"[{timestamp}] HDG:RESET");
@@ -220,8 +232,32 @@ namespace SimpleUartReceiver
                     // LEARNING POINT #5: Signed Integer Handling
                     // We receive unsigned byte, but interpret as signed (two's complement)
                     // Cast to sbyte to get the signed value (-128 to +127)
-                    sbyte signedDelta = (sbyte)operand;
-                    Console.WriteLine($"[{timestamp}] HDG:SET delta={signedDelta:+#;-#;0}");
+                    sbyte hdgDelta = (sbyte)operand;
+                    Console.WriteLine($"[{timestamp}] HDG:SET delta={hdgDelta:+#;-#;0}");
+                    break;
+
+                // ===== ALTITUDE CONTROL =====
+                case CMD_ALT_RESET:
+                    // ALT:RESET always has operand = 0x00
+                    Console.WriteLine($"[{timestamp}] ALT:RESET");
+                    break;
+
+                case CMD_ALT_SET:
+                    // ALT:SET operand is a SIGNED 8-bit integer
+                    sbyte altDelta = (sbyte)operand;
+                    Console.WriteLine($"[{timestamp}] ALT:SET delta={altDelta:+#;-#;0}");
+                    break;
+
+                // ===== VERTICAL SPEED CONTROL =====
+                case CMD_VS_RESET:
+                    // VS:RESET always has operand = 0x00
+                    Console.WriteLine($"[{timestamp}] VS:RESET");
+                    break;
+
+                case CMD_VS_SET:
+                    // VS:SET operand is a SIGNED 8-bit integer
+                    sbyte vsDelta = (sbyte)operand;
+                    Console.WriteLine($"[{timestamp}] VS:SET delta={vsDelta:+#;-#;0}");
                     break;
 
                 default:

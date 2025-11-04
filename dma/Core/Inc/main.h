@@ -76,6 +76,7 @@ void Error_Handler(void);
 #define KNOB_VS_B_GPIO_Port GPIOA
 #define BTN_KNOB_ALT_Pin GPIO_PIN_0
 #define BTN_KNOB_ALT_GPIO_Port GPIOB
+#define BTN_KNOB_ALT_EXTI_IRQn EXTI0_1_IRQn
 #define KNOB_ALT_A_Pin GPIO_PIN_8
 #define KNOB_ALT_A_GPIO_Port GPIOA
 #define KNOB_ALT_B_Pin GPIO_PIN_9
