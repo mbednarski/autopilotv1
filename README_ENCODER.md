@@ -4,6 +4,135 @@
 
 This document describes the hardware connections and configuration for rotary encoder support on the STM32F091RC Nucleo board. The encoder is used to send HDG:SET commands to the PC via UART.
 
+## ✅ Verified Working Configuration
+
+**Status:** Fully operational and tested ✓
+
+**Encoder Behavior:**
+- ✅ One physical detent click → One `HDG:SET(±1)` command
+- ✅ Smooth, precise control for slow rotations
+- ✅ Fast rotation properly accumulated (10 clicks = +10)
+- ✅ No duplicate packets or missed steps
+- ✅ Button press sends `HDG:RESET` reliably
+
+**Key Implementation Features:**
+- **Hardware counting:** TIM2 in encoder mode (TI12, 4× resolution)
+- **Delta accumulation:** Collects multiple electrical pulses per detent
+- **Configurable scaling:** `ENCODER_COUNTS_PER_UNIT = 4` (calibrated for this encoder)
+- **Rate limiting:** 20ms minimum between transmissions (50 Hz max)
+- **Debounced button:** 50ms debounce window prevents bouncing
+
+---
+
+## How Encoder Handling Works
+
+### The Complete Picture
+
+This implementation uses a sophisticated approach combining **hardware encoding**, **software accumulation**, and **configurable scaling** to provide precise, responsive control:
+
+```
+Physical Rotation → Hardware Counting → Accumulation → Scaling → UART Transmission
+```
+
+#### 1. **Hardware Encoder Mode (TIM2 in TI12 Mode)**
+
+The STM32 timer peripheral monitors the encoder in hardware:
+
+- **PA0 (Channel A)** and **PA1 (Channel B)** connected to TIM2_CH1/CH2
+- **TI12 mode** counts on all 4 edges per quadrature cycle (4× resolution)
+- **Automatic direction detection:** CW = increment, CCW = decrement
+- **Zero CPU overhead:** Counting happens in hardware while CPU sleeps
+- **Never misses steps:** Hardware always captures encoder movement
+
+**One mechanical detent click produces:**
+```
+Channel A: ____|‾‾‾‾|____  (one toggle)
+Channel B: ___|‾‾‾‾|_____  (one toggle, 90° phase shift)
+Edges:        1  2  3  4  (TI12 counts all 4 edges)
+
+Result: TIM2 counter increments by 4 for one detent
+```
+
+#### 2. **Software Accumulation (Main Loop Polling)**
+
+Called every 10ms in main loop, `ProcessEncoder()` function:
+
+1. **Reads current TIM2 counter** (instant, just reads a register)
+2. **Calculates delta** from last read
+3. **Accumulates delta immediately** and updates reference position
+4. **Prevents duplicate sends** by updating reference before rate limiting
+
+**Why accumulation is critical:**
+- One detent takes 30-50ms mechanically
+- Multiple pulses arrive during that time (counter: 100→101→102→103→104)
+- Without accumulation: Would send 4 separate packets
+- With accumulation: Collects all 4 pulses, sends once
+
+#### 3. **Configurable Scaling (ENCODER_COUNTS_PER_UNIT)**
+
+Before sending, accumulated counts are divided by the scaling factor:
+
+```c
+scaled_delta = accumulated_delta / ENCODER_COUNTS_PER_UNIT;
+```
+
+**For this encoder (ENCODER_COUNTS_PER_UNIT = 4):**
+- Accumulated: +4 raw counts (from one detent)
+- Scaled: +4 / 4 = +1 logical unit
+- Sent: `HDG:SET(+1)`
+
+**Result:** One physical detent click = exactly ±1 command
+
+#### 4. **Rate Limiting (20ms Minimum Between Sends)**
+
+Prevents UART flooding during fast rotation:
+- Maximum send rate: 50 Hz (one packet every 20ms)
+- Deltas accumulate during rate-limited periods
+- Example: 5 clicks in 15ms → sends one `HDG:SET(+5)` packet at 20ms
+
+#### 5. **Fractional Preservation**
+
+Integer division may leave remainders:
+```
+Accumulated: +5 raw counts
+Scaled: +5 / 4 = +1 (integer division)
+Sent: HDG:SET(+1)
+Remaining: +5 - (1 × 4) = +1 (stays in accumulator)
+```
+
+The +1 remainder is preserved and adds to the next movement!
+
+### Example Scenarios
+
+**Slow single click:**
+```
+t=0ms:   Counter 0→1, accum 0→1
+t=10ms:  Counter 1→2, accum 1→2
+t=20ms:  Counter 2→3, accum 2→3
+t=30ms:  Counter 3→4, accum 3→4
+t=40ms:  Rate limit OK → send 4/4=+1, accum reset to 0
+Result: HDG:SET(+1) ✓
+```
+
+**Fast 3 clicks (50ms total):**
+```
+t=0ms:   3 clicks in quick succession
+t=10ms:  Counter jumps 0→12, accum 0→12
+t=20ms:  Rate limit OK → send 12/4=+3, accum reset to 0
+Result: HDG:SET(+3) ✓
+```
+
+**Very slow partial rotation (stopped mid-detent):**
+```
+t=0ms:   Counter 0→2 (halfway through detent)
+t=10ms:  User stops, accum = 2
+t=20ms:  Rate limit OK → scaled 2/4=0, nothing sent
+         Remainder stays: accum = 2
+t=500ms: User continues, counter 2→4, accum 2→4
+t=520ms: Rate limit OK → send 4/4=+1, accum reset to 0
+Result: Fractional movements preserved ✓
+```
+
 ---
 
 ## Hardware Requirements
@@ -197,10 +326,57 @@ Add external 4.7kΩ pull-ups if:
 #define CMD_HDG_RESET    0x10  // Button press command
 #define CMD_HDG_SET      0x11  // Encoder rotation command
 
+// Encoder scaling (IMPORTANT - adjust for your encoder!)
+#define ENCODER_COUNTS_PER_UNIT  4   // Divide raw counts by this value
+
 // Timing constants (adjust if needed)
 #define MIN_SEND_INTERVAL_MS  20   // Encoder rate limit (50 Hz)
 #define DEBOUNCE_TIME_MS      50   // Button debounce time
 ```
+
+**⚙️ ENCODER_COUNTS_PER_UNIT Configuration:**
+
+This is the **most important constant** to adjust for your specific encoder!
+
+**How to calibrate:**
+1. Build and flash firmware with `ENCODER_COUNTS_PER_UNIT = 1` (no scaling)
+2. Rotate encoder **one detent** (one "click")
+3. Observe serial output:
+   - See 1 packet `HDG:SET(+1)` → **Set to 1** (perfect!)
+   - See 2 packets `HDG:SET(+1)` → **Set to 2**
+   - See 1 packet `HDG:SET(+2)` → **Set to 2**
+   - See 1 packet `HDG:SET(+4)` → **Set to 4** ← **Most common!**
+4. Rebuild and test
+
+**Current Configuration: ENCODER_COUNTS_PER_UNIT = 4**
+
+This value was calibrated for the encoder used in this project. Here's why:
+
+**Encoder Characteristics:**
+- **TI12 Mode (4× resolution):** Counts on all edges of both channels
+- **Detent alignment:** Mechanical detent spans one complete quadrature cycle
+- **Result:** 4 electrical counts per physical detent click
+
+**The Math:**
+```
+One detent click:
+├─ Quadrature cycle: A and B each toggle high→low→high
+├─ Edges counted: A↑, B↑, A↓, B↓ = 4 edges (TI12 mode)
+└─ Raw counts: +4
+
+With ENCODER_COUNTS_PER_UNIT = 4:
+├─ Accumulated: +4
+├─ Scaled: +4 / 4 = +1
+└─ Sent: HDG:SET(+1) ✓
+```
+
+**Goal:** One physical detent click = one `HDG:SET(±1)` packet
+
+**Why this matters:**
+- Proper scaling gives you precise 1:1 control
+- One click → one unit of heading change
+- Intuitive and predictable behavior
+- Maximum precision for slow adjustments
 
 ### Adjustable Parameters
 
@@ -265,17 +441,42 @@ B: __|‾‾|__|‾‾|__    (Channel B leads 90°)
    - TIM2 hardware detects edges and updates counter
    - No CPU intervention needed!
 
-2. **Software polling** (main loop every 10ms):
+2. **Software polling with accumulation** (main loop every 10ms):
    ```c
    ProcessEncoder() {
        current_count = read TIM2 counter
        delta = current_count - last_count
 
-       if (delta != 0 && rate_limit_OK) {
-           SendHdgSet(delta)
-           last_count = current_count
+       if (delta != 0) {
+           accumulated_delta += delta      // Accumulate movements
+           last_count = current_count      // Update immediately
+       }
+
+       if (accumulated_delta != 0 && rate_limit_OK) {
+           scaled_delta = accumulated_delta / ENCODER_COUNTS_PER_UNIT
+           if (scaled_delta != 0) {
+               SendHdgSet(scaled_delta)
+               accumulated_delta -= (scaled_delta * ENCODER_COUNTS_PER_UNIT)
+           }
        }
    }
+   ```
+
+   **Key features:**
+   - **Accumulation:** Collects 4 pulses from single detent click
+   - **Scaling:** Divides by `ENCODER_COUNTS_PER_UNIT` (4) for proper 1:1 mapping
+   - **Fractional preservation:** Remainder stays in accumulator for next cycle
+
+   **Example for this encoder (4 counts per detent):**
+   ```
+   User clicks encoder once:
+   ├─ TIM2 counter: 100 → 101 → 102 → 103 → 104 (over ~40ms)
+   ├─ Accumulated delta: 0 → 1 → 2 → 3 → 4
+   ├─ Rate limit allows sending
+   ├─ Scaled: 4 / 4 = 1
+   └─ Sent: HDG:SET(+1) ✓
+
+   Result: One click = one packet with ±1
    ```
 
 3. **UART transmission** (DMA in background):

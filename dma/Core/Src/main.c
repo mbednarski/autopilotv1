@@ -35,6 +35,45 @@
 #define PROTO_START      0xAA
 #define CMD_HDG_RESET    0x10
 #define CMD_HDG_SET      0x11
+
+/* ============================================================================
+ * ENCODER CONFIGURATION
+ * ============================================================================
+ */
+
+/**
+ * @brief Encoder scaling divisor
+ *
+ * This constant adjusts how many encoder counts equal one HDG:SET unit.
+ * It compensates for the encoder's pulses-per-revolution vs detents ratio.
+ *
+ * HOW TO DETERMINE THE RIGHT VALUE:
+ * ---------------------------------
+ * 1. Set to 1 initially (no scaling)
+ * 2. Rotate encoder one detent (one "click")
+ * 3. Observe how many HDG:SET packets are sent
+ *    - If 1 packet with delta=+1 → Divisor = 1 (perfect, no change needed)
+ *    - If 2 packets with delta=+1 → Divisor = 2
+ *    - If 1 packet with delta=+2 → Divisor = 2
+ *    - If 1 packet with delta=+4 → Divisor = 4 (most common with TI12 mode)
+ * 4. Adjust ENCODER_COUNTS_PER_UNIT to match
+ *
+ * CURRENT CONFIGURATION: 4 (verified working)
+ * -------------------------------------------
+ * This encoder produces 4 hardware counts per detent click:
+ * - TI12 encoder mode counts all edges on both channels (4× resolution)
+ * - One detent = one complete quadrature cycle = 4 edges
+ * - Dividing by 4 gives perfect 1:1 mapping (one click = ±1)
+ *
+ * GOAL: One physical detent click = one HDG:SET(±1) command
+ *
+ * EXAMPLES FOR OTHER ENCODERS:
+ * - Value 1: No scaling (use raw encoder counts)
+ * - Value 2: Divide counts by 2 (low-res encoders or TI1 mode)
+ * - Value 4: Divide counts by 4 (CURRENT - typical for TI12 mode)
+ */
+#define ENCODER_COUNTS_PER_UNIT  4
+
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -64,6 +103,32 @@ DMA_HandleTypeDef hdma_usart2_tx;
 // We store the previous counter value to calculate the delta (change) since
 // the last read. Using int32_t because TIM2 counter is 32-bit.
 static int32_t encoder_last_count = 0;
+
+// Encoder delta accumulator
+// -------------------------
+// Accumulates encoder movements between UART transmissions. This solves two
+// problems:
+//
+// 1. PREVENTS DUPLICATE SENDS:
+//    A single detent click might take 30-80ms mechanically, but the encoder
+//    generates multiple electrical pulses during that time. Without accumulation,
+//    each pulse would be sent separately (e.g., two +1 packets instead of one +2).
+//    The accumulator collects all pulses, then sends once when rate limit allows.
+//
+// 2. ENABLES SCALING:
+//    After accumulating raw counts, we divide by ENCODER_COUNTS_PER_UNIT to
+//    convert hardware counts to logical units. This allows one detent click to
+//    equal exactly ±1, regardless of the encoder's electrical characteristics.
+//
+// Example timeline (current encoder with 4 counts per detent):
+//   t=0ms:  Detent starts, counter: 100→101, accum: 0→1, last: 101
+//   t=10ms: Detent continues, counter: 101→102, accum: 1→2, last: 102
+//   t=20ms: Detent continues, counter: 102→103, accum: 2→3, last: 103
+//   t=30ms: Detent completes, counter: 103→104, accum: 3→4, last: 104
+//   t=40ms: Rate limit OK, send accum/4 = 4/4 = +1, reset accum to 0
+//
+// Result: One physical detent = one HDG:SET(+1) command
+static int32_t encoder_accumulated_delta = 0;
 
 // Rate limiting for UART transmission
 // ------------------------------------
@@ -304,11 +369,11 @@ static void MX_TIM2_Init(void)
   sConfig.IC1Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC1Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC1Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC1Filter = 0;
+  sConfig.IC1Filter = 15;
   sConfig.IC2Polarity = TIM_ICPOLARITY_RISING;
   sConfig.IC2Selection = TIM_ICSELECTION_DIRECTTI;
   sConfig.IC2Prescaler = TIM_ICPSC_DIV1;
-  sConfig.IC2Filter = 0;
+  sConfig.IC2Filter = 15;
   if (HAL_TIM_Encoder_Init(&htim2, &sConfig) != HAL_OK)
   {
     Error_Handler();
@@ -498,89 +563,125 @@ void ProcessEncoder(void)
     //   - Higher (e.g., 50ms): Less responsive, lower UART traffic
     const uint32_t MIN_SEND_INTERVAL_MS = 20;
 
-    // Step 1: Read current encoder position from hardware
-    // ----------------------------------------------------
-    // __HAL_TIM_GET_COUNTER is a macro that reads the TIM2->CNT register.
-    // This is the current value of the hardware counter. It changes
-    // automatically as the encoder rotates - we don't increment it manually!
+    // =========================================================================
+    // STEP 1: Read current encoder position from hardware
+    // =========================================================================
+    // __HAL_TIM_GET_COUNTER reads the TIM2->CNT register directly.
+    // This value changes automatically in hardware as the encoder rotates:
+    // - Clockwise rotation: Counter increments
+    // - Counter-clockwise:  Counter decrements
+    // - No CPU intervention needed!
     //
-    // Cast to int32_t because:
-    // - TIM2 counter is 32-bit unsigned (0 to 4,294,967,295)
-    // - We need signed math for delta calculation
-    // - Encoder can rotate in either direction (positive or negative delta)
+    // Cast to int32_t for signed arithmetic (encoder can go both directions)
     int32_t current_count = (int32_t)__HAL_TIM_GET_COUNTER(&htim2);
 
-    // Step 2: Calculate delta (change since last read)
-    // -------------------------------------------------
-    // Delta is the difference between current and previous position:
-    // - Positive delta: Encoder rotated clockwise (e.g., 100 -> 104, delta = +4)
-    // - Negative delta: Encoder rotated CCW (e.g., 100 -> 96, delta = -4)
-    // - Zero delta: No movement
-    //
-    // This works because TIM2 hardware increments for CW, decrements for CCW.
+    // =========================================================================
+    // STEP 2: Calculate raw delta (change since last read)
+    // =========================================================================
+    // This is how many counts the hardware encoder has moved since we last
+    // checked. Could be positive (CW), negative (CCW), or zero (no movement).
     int32_t delta = current_count - encoder_last_count;
 
-    // Step 3: Check if encoder moved
-    // -------------------------------
-    // If delta is zero, encoder hasn't moved since last read. Skip processing.
+    // =========================================================================
+    // STEP 3: Accumulate delta and update reference position
+    // =========================================================================
+    // KEY CHANGE: We ALWAYS update encoder_last_count when delta != 0,
+    // regardless of whether we send via UART. This prevents seeing the
+    // same encoder movement multiple times.
+    //
+    // WHY THIS MATTERS:
+    // A single detent click might take 30-80ms mechanically. During that time,
+    // the encoder generates multiple electrical pulses. Without immediate
+    // reference update, we would see:
+    //   t=0ms:  counter 100→101, delta=+1 → send
+    //   t=10ms: counter 101→102, delta=+1 → send again! (duplicate)
+    //
+    // With immediate update:
+    //   t=0ms:  counter 100→101, delta=+1, accum=+1, last=101
+    //   t=10ms: counter 101→102, delta=+1, accum=+2, last=102
+    //   t=20ms: Rate limit OK, send accum=+2, reset accum=0
     if (delta != 0)
     {
-        // Step 4: Rate limiting check
-        // ----------------------------
-        // Get current system time (milliseconds since boot, from SysTick)
-        uint32_t current_time = HAL_GetTick();
+        encoder_accumulated_delta += delta;  // Add to accumulator
+        encoder_last_count = current_count;  // Update reference immediately
+    }
 
-        // Calculate time elapsed since last transmission
+    // =========================================================================
+    // STEP 4: Send accumulated delta when rate limit allows
+    // =========================================================================
+    // Only transmit when:
+    // 1. We have accumulated movement (accumulated_delta != 0)
+    // 2. Enough time has passed since last transmission (rate limiting)
+    if (encoder_accumulated_delta != 0)
+    {
+        uint32_t current_time = HAL_GetTick();
         uint32_t time_since_last_send = current_time - encoder_last_send_time;
 
-        // Only send if enough time has passed
         if (time_since_last_send >= MIN_SEND_INTERVAL_MS)
         {
-            // Step 5: Clamp delta to int8_t range
-            // ------------------------------------
-            // The UART protocol operand is a signed 8-bit value (-128 to +127).
-            // If the user spins very fast and we haven't polled in a while,
-            // delta could exceed this range. We clamp it to prevent overflow.
+            // ================================================================
+            // STEP 5: Scale accumulated delta by encoder divisor
+            // ================================================================
+            // Convert raw encoder counts to logical units.
+            // This compensates for encoder PPR vs detent count mismatch.
             //
-            // Example: If delta is 200 (very fast spin), we clamp to +127
-            if (delta > 127)
-                delta = 127;
-            else if (delta < -128)
-                delta = -128;
-
-            // Step 6: Send the HDG:SET command
-            // ---------------------------------
-            // Cast delta to int8_t and send via UART DMA.
-            // The SendHdgSet() function builds the 4-byte protocol packet:
-            // [0xAA | 0x11 | delta | checksum]
-            SendHdgSet((int8_t)delta);
-
-            // Step 7: Update rate limit timestamp
-            // ------------------------------------
-            // Record the time we sent this packet. Next send won't happen
-            // until MIN_SEND_INTERVAL_MS have passed.
-            encoder_last_send_time = current_time;
-
-            // Step 8: Reset encoder position reference
-            // -----------------------------------------
-            // IMPORTANT: After sending the delta, we reset our reference
-            // point to the current position. This prevents accumulation.
+            // EXAMPLE (current encoder with ENCODER_COUNTS_PER_UNIT = 4):
+            //   Physical: User clicks encoder 1 detent
+            //   Hardware: Counter increments by 4 (four edges in TI12 mode)
+            //   Accumulated: +4
+            //   Scaled: +4 / 4 = +1
+            //   Sent: HDG:SET(+1) ← One click = one unit!
             //
-            // Example timeline:
-            // - t=0ms:  count=100, last=100, delta=0    -> no send
-            // - t=10ms: count=104, last=100, delta=+4   -> too soon (rate limit)
-            // - t=25ms: count=108, last=100, delta=+8   -> SEND delta=+8, set last=108
-            // - t=30ms: count=110, last=108, delta=+2   -> too soon (rate limit)
-            // - t=50ms: count=115, last=108, delta=+7   -> SEND delta=+7, set last=115
-            //
-            // Notice we reset last_count to current AFTER sending, so deltas
-            // don't accumulate across rate-limited periods.
-            encoder_last_count = current_count;
+            // To adjust: Change ENCODER_COUNTS_PER_UNIT constant at top of file
+            int32_t scaled_delta = encoder_accumulated_delta / ENCODER_COUNTS_PER_UNIT;
+
+            // ================================================================
+            // STEP 6: Only send if scaled delta is non-zero
+            // ================================================================
+            // After division, very small movements might round to zero.
+            // Don't send a packet if there's nothing meaningful to send.
+            // The fractional part stays in the accumulator for next time.
+            if (scaled_delta != 0)
+            {
+                // ============================================================
+                // STEP 7: Clamp to protocol range (-128 to +127)
+                // ============================================================
+                // UART protocol uses signed 8-bit operand. If user spins
+                // encoder extremely fast, clamp to prevent overflow.
+                if (scaled_delta > 127)
+                    scaled_delta = 127;
+                else if (scaled_delta < -128)
+                    scaled_delta = -128;
+
+                // ============================================================
+                // STEP 8: Send the HDG:SET command via UART
+                // ============================================================
+                SendHdgSet((int8_t)scaled_delta);
+
+                // ============================================================
+                // STEP 9: Update timestamps and accumulator
+                // ============================================================
+                // Record send time for rate limiting
+                encoder_last_send_time = current_time;
+
+                // Subtract the UNSCALED amount we just sent from accumulator.
+                // Why multiply back? Because we divided for sending, but the
+                // accumulator tracks raw counts.
+                //
+                // Example:
+                //   accumulated_delta = 5 raw counts
+                //   scaled_delta = 5 / 2 = 2 (integer division)
+                //   We sent: +2
+                //   We used: 2 * 2 = 4 raw counts
+                //   Remaining: 5 - 4 = 1 raw count (saved for next time)
+                encoder_accumulated_delta -= (scaled_delta * ENCODER_COUNTS_PER_UNIT);
+            }
+            // If scaled_delta is 0 (very small movement), keep it in
+            // accumulator. It will add up with future movements until
+            // it's large enough to send.
         }
-        // If rate limit prevents sending, we DON'T update encoder_last_count.
-        // This means the delta will accumulate until the next send window.
-        // Example: If encoder moves +2, +3, +2 within 20ms, the next send
-        // will include the full +7 delta.
+        // If rate limited, accumulated_delta stays as-is and will be
+        // sent on the next cycle when rate limit permits.
     }
 }
 
