@@ -31,7 +31,10 @@
 
 /* Private define ------------------------------------------------------------*/
 /* USER CODE BEGIN PD */
-
+// Protocol constants
+#define PROTO_START      0xAA
+#define CMD_HDG_RESET    0x10
+#define CMD_HDG_SET      0x11
 /* USER CODE END PD */
 
 /* Private macro -------------------------------------------------------------*/
@@ -58,11 +61,8 @@ static void MX_USART2_UART_Init(void);
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-uint8_t UART2_txBuffer[5] = "ASD\r\n";
-
-
-
-
+// Old test buffer - no longer needed
+// uint8_t UART2_txBuffer[5] = {0xAA, 0x01, 0x32, 0x00, 0xFF};
 
 /* USER CODE END 0 */
 
@@ -105,8 +105,19 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-	HAL_StatusTypeDef statis = HAL_UART_Transmit_DMA(&huart2, UART2_txBuffer, 5);
-//	HAL_Delay(1000);
+    // Test protocol by sending commands with delays
+    SendHdgReset();
+    HAL_Delay(1000);
+
+    SendHdgSet(10);  // Set heading +10
+    HAL_Delay(1000);
+
+    SendHdgSet(-5);  // Set heading -5
+    HAL_Delay(1000);
+
+    SendHdgSet(127); // Max positive
+    HAL_Delay(1000);
+
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -245,6 +256,39 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+
+/**
+ * @brief Send HDG:RESET command via UART
+ * Resets heading to default position (operand always 0x00)
+ */
+void SendHdgReset(void)
+{
+    static uint8_t txBuffer[4];
+
+    txBuffer[0] = PROTO_START;
+    txBuffer[1] = CMD_HDG_RESET;
+    txBuffer[2] = 0x00;  // Operand always zero for reset
+    txBuffer[3] = PROTO_START ^ CMD_HDG_RESET ^ 0x00;  // Checksum
+
+    HAL_UART_Transmit_DMA(&huart2, txBuffer, 4);
+}
+
+/**
+ * @brief Send HDG:SET command via UART
+ * Sets heading delta with signed 8-bit value
+ * @param delta: Signed delta value (-128 to +127)
+ */
+void SendHdgSet(int8_t delta)
+{
+    static uint8_t txBuffer[4];
+
+    txBuffer[0] = PROTO_START;
+    txBuffer[1] = CMD_HDG_SET;
+    txBuffer[2] = (uint8_t)delta;  // Cast signed to unsigned for transmission
+    txBuffer[3] = PROTO_START ^ CMD_HDG_SET ^ (uint8_t)delta;  // Checksum
+
+    HAL_UART_Transmit_DMA(&huart2, txBuffer, 4);
+}
 
 /* USER CODE END 4 */
 

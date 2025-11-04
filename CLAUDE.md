@@ -1,0 +1,1 @@
+- refer to @PROTOCOL.md when need to understand communcation protcol between PC and STM32
