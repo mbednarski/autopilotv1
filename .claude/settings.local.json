@@ -1,7 +1,9 @@
 {
   "permissions": {
     "allow": [
-      "Bash(cat:*)"
+      "Bash(cat:*)",
+      "WebSearch",
+      "WebFetch(domain:www.st.com)"
     ],
     "deny": [],
     "ask": []

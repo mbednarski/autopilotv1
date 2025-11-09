@@ -55,6 +55,50 @@ Set heading delta (increment/decrement).
   - Set -5: `[0xAA, 0x11, 0xFB, 0x40]` (0xFB = -5 in two's complement)
   - Set +127: `[0xAA, 0x11, 0x7F, 0x24]`
 
+### ALT:RESET (0x20)
+Reset the altitude to default position.
+
+- **Command byte**: `0x20`
+- **Operand**: Always `0x00` (unused)
+- **Direction**: STM32 → PC
+- **Example**: `[0xAA, 0x20, 0x00, 0x8A]`
+- **Checksum**: `0xAA ^ 0x20 ^ 0x00 = 0x8A`
+
+### ALT:SET (0x21)
+Set altitude delta (increment/decrement).
+
+- **Command byte**: `0x21`
+- **Operand**: Signed 8-bit integer (-128 to +127)
+  - Positive values: increment altitude
+  - Negative values: decrement altitude
+- **Direction**: STM32 → PC
+- **Examples**:
+  - Set +10: `[0xAA, 0x21, 0x0A, 0x81]`
+  - Set -5: `[0xAA, 0x21, 0xFB, 0x70]` (0xFB = -5 in two's complement)
+  - Set +50: `[0xAA, 0x21, 0x32, 0x99]`
+
+### VS:RESET (0x30)
+Reset the vertical speed to default position (typically 0 ft/min).
+
+- **Command byte**: `0x30`
+- **Operand**: Always `0x00` (unused)
+- **Direction**: STM32 → PC
+- **Example**: `[0xAA, 0x30, 0x00, 0x9A]`
+- **Checksum**: `0xAA ^ 0x30 ^ 0x00 = 0x9A`
+
+### VS:SET (0x31)
+Set vertical speed delta (increment/decrement).
+
+- **Command byte**: `0x31`
+- **Operand**: Signed 8-bit integer (-128 to +127)
+  - Positive values: increment vertical speed
+  - Negative values: decrement vertical speed
+- **Direction**: STM32 → PC
+- **Examples**:
+  - Set +10: `[0xAA, 0x31, 0x0A, 0x91]`
+  - Set -5: `[0xAA, 0x31, 0xFB, 0x60]` (0xFB = -5 in two's complement)
+  - Set +100: `[0xAA, 0x31, 0x64, 0xFF]`
+
 ## Implementation Notes
 
 ### STM32 (Transmitter)

@@ -66,6 +66,7 @@ typedef struct {
     int32_t last_count;           // Last timer counter value (for delta calculation)
     int32_t accumulated_delta;    // Accumulated counts before scaling and sending
     uint32_t last_send_time;      // Timestamp of last UART send (for rate limiting)
+    uint32_t last_movement_time;  // Timestamp of last encoder movement (for noise rejection)
     uint32_t button_last_press;   // Timestamp of last button press (for debouncing)
 
     // DMA buffer
@@ -193,6 +194,7 @@ static Encoder_t encoders[3] = {
         0,                   // last_count (initialized to 0)
         0,                   // accumulated_delta (initialized to 0)
         0,                   // last_send_time (initialized to 0)
+        0,                   // last_movement_time (initialized to 0)
         0,                   // button_last_press (initialized to 0)
         {0},                 // tx_buffer (initialized to zeros)
         4                    // counts_per_unit (4 for TI12 mode)
@@ -211,6 +213,7 @@ static Encoder_t encoders[3] = {
         0,                   // last_count
         0,                   // accumulated_delta
         0,                   // last_send_time
+        0,                   // last_movement_time
         0,                   // button_last_press
         {0},                 // tx_buffer (initialized to zeros)
         4                    // counts_per_unit
@@ -229,6 +232,7 @@ static Encoder_t encoders[3] = {
         0,                   // last_count
         0,                   // accumulated_delta
         0,                   // last_send_time
+        0,                   // last_movement_time
         0,                   // button_last_press
         {0},                 // tx_buffer (initialized to zeros)
         4                    // counts_per_unit
@@ -864,8 +868,9 @@ void ProcessEncoder(Encoder_t* enc)
     //   t=20ms: Rate limit OK, send accum=+2, reset accum=0
     if (delta != 0)
     {
-        enc->accumulated_delta += delta;  // Add to this encoder's accumulator
-        enc->last_count = current_count;  // Update this encoder's reference
+        enc->accumulated_delta += delta;       // Add to this encoder's accumulator
+        enc->last_count = current_count;       // Update this encoder's reference
+        enc->last_movement_time = HAL_GetTick();  // Track movement for noise rejection
     }
 
     // =========================================================================
@@ -1006,6 +1011,17 @@ void ProcessEncoder(Encoder_t* enc)
  * Without debouncing, one button press would trigger this interrupt 5-10 times.
  * We prevent this using timestamps stored PER ENCODER in the structure.
  *
+ * NOISE REJECTION (CRITICAL FOR VS ENCODER):
+ * ------------------------------------------
+ * When an encoder rotates, it generates electrical noise that can couple into
+ * nearby wires (especially the button wire on the same encoder). This causes
+ * false button interrupts during rotation.
+ *
+ * Solution: We reject button presses if the encoder was actively rotating
+ * within the last 150ms. This is detected by checking enc->last_send_time.
+ * If a command was sent recently, the encoder was moving, so the button
+ * interrupt is likely noise and is ignored.
+ *
  * INTERRUPT CONTEXT CONSIDERATIONS:
  * ----------------------------------
  * This function runs in interrupt context, not main loop context. Rules:
@@ -1018,9 +1034,10 @@ void ProcessEncoder(Encoder_t* enc)
  */
 void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
 {
-    // Debounce configuration
-    // ----------------------
-    const uint32_t DEBOUNCE_TIME_MS = 50;
+    // Debounce and noise rejection configuration
+    // -------------------------------------------
+    const uint32_t DEBOUNCE_TIME_MS = 100;  // Increased from 50ms to reject more noise
+    const uint32_t ENCODER_QUIET_TIME_MS = 500;  // Increased to 500ms - rejects button when encoder is rotating/settling
 
     // Get current time once (more efficient than calling HAL_GetTick() repeatedly)
     uint32_t current_time = HAL_GetTick();
@@ -1050,6 +1067,25 @@ void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
             // NOTICE: Each encoder has its own button_last_press timestamp!
             // Pressing HDG button doesn't affect VS button debouncing, etc.
             uint32_t time_since_last_press = current_time - enc->button_last_press;
+
+            // Noise rejection: Ignore button if encoder was recently rotating
+            // ----------------------------------------------------------------
+            // CRITICAL FIX for VS encoder noise issue:
+            // When the encoder rotates, it generates electrical noise that can
+            // couple into the button pin and trigger false interrupts.
+            //
+            // We reject the button press if the encoder MOVED recently
+            // (within ENCODER_QUIET_TIME_MS). We check last_movement_time, which
+            // updates IMMEDIATELY when the encoder counter changes, not when we
+            // send (which is rate-limited). This catches noise even before the
+            // first UART packet is sent.
+            uint32_t time_since_encoder_activity = current_time - enc->last_movement_time;
+
+            if (time_since_encoder_activity < ENCODER_QUIET_TIME_MS)
+            {
+                // Encoder was recently rotating - this is likely noise, ignore it
+                break;
+            }
 
             // Debounce check
             // --------------
