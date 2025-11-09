@@ -21,7 +21,9 @@
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
-
+#include "ssd1306.h"
+#include <string.h>
+#include <stdio.h>
 /* USER CODE END Includes */
 
 /* Private typedef -----------------------------------------------------------*/
@@ -40,11 +42,16 @@
 /* USER CODE END PM */
 
 /* Private variables ---------------------------------------------------------*/
+I2C_HandleTypeDef hi2c1;
+
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_tx;
+DMA_HandleTypeDef hdma_usart2_rx;
 
 /* USER CODE BEGIN PV */
-
+// UART RX buffer for 3-byte command frames from PC
+// Frame format: [START=0x88, COMMAND, CHECKSUM]
+uint8_t uart_rx_buffer[3];
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -52,6 +59,7 @@ void SystemClock_Config(void);
 static void MX_GPIO_Init(void);
 static void MX_DMA_Init(void);
 static void MX_USART2_UART_Init(void);
+static void MX_I2C1_Init(void);
 /* USER CODE BEGIN PFP */
 
 /* USER CODE END PFP */
@@ -114,6 +122,38 @@ void SendButtonCommand(Button_t* btn, uint8_t cmd, uint8_t operand)
 //
 //}
 
+/**
+ * @brief Update OLED display with received command information
+ * @param command: Received command byte
+ */
+void Display_UpdateCommand(uint8_t command)
+{
+    char cmd_text[20];
+    char code_text[20];
+
+    // Format command name
+    if (command == 0x10) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: LED ON");
+    } else if (command == 0x11) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: LED OFF");
+    } else {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: UNKNOWN");
+    }
+
+    // Format command code
+    snprintf(code_text, sizeof(code_text), "Code: 0x%02X", command);
+
+    // Update display
+    SSD1306_Clear();
+    SSD1306_SetCursor(0, 0);
+    SSD1306_Puts("UART Monitor");
+    SSD1306_SetCursor(0, 1);
+    SSD1306_Puts(cmd_text);
+    SSD1306_SetCursor(0, 2);
+    SSD1306_Puts(code_text);
+    SSD1306_UpdateScreen();
+}
+
 /* USER CODE END 0 */
 
 /**
@@ -147,8 +187,19 @@ int main(void)
   MX_GPIO_Init();
   MX_DMA_Init();
   MX_USART2_UART_Init();
+  MX_I2C1_Init();
   /* USER CODE BEGIN 2 */
+  // Initialize SSD1306 OLED Display
+  SSD1306_Init(&hi2c1);
+  SSD1306_Clear();
+  SSD1306_SetCursor(0, 0);
+  SSD1306_Puts("UART Monitor");
+  SSD1306_SetCursor(0, 1);
+  SSD1306_Puts("Ready...");
+  SSD1306_UpdateScreen();
 
+  // Start DMA reception for 3-byte command frames from PC
+  HAL_UART_Receive_DMA(&huart2, uart_rx_buffer, 3);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -220,12 +271,61 @@ void SystemClock_Config(void)
   {
     Error_Handler();
   }
-  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2;
+  PeriphClkInit.PeriphClockSelection = RCC_PERIPHCLK_USART2|RCC_PERIPHCLK_I2C1;
   PeriphClkInit.Usart2ClockSelection = RCC_USART2CLKSOURCE_PCLK1;
+  PeriphClkInit.I2c1ClockSelection = RCC_I2C1CLKSOURCE_HSI;
   if (HAL_RCCEx_PeriphCLKConfig(&PeriphClkInit) != HAL_OK)
   {
     Error_Handler();
   }
+}
+
+/**
+  * @brief I2C1 Initialization Function
+  * @param None
+  * @retval None
+  */
+static void MX_I2C1_Init(void)
+{
+
+  /* USER CODE BEGIN I2C1_Init 0 */
+
+  /* USER CODE END I2C1_Init 0 */
+
+  /* USER CODE BEGIN I2C1_Init 1 */
+
+  /* USER CODE END I2C1_Init 1 */
+  hi2c1.Instance = I2C1;
+  hi2c1.Init.Timing = 0x00201D2B;
+  hi2c1.Init.OwnAddress1 = 0;
+  hi2c1.Init.AddressingMode = I2C_ADDRESSINGMODE_7BIT;
+  hi2c1.Init.DualAddressMode = I2C_DUALADDRESS_DISABLE;
+  hi2c1.Init.OwnAddress2 = 0;
+  hi2c1.Init.OwnAddress2Masks = I2C_OA2_NOMASK;
+  hi2c1.Init.GeneralCallMode = I2C_GENERALCALL_DISABLE;
+  hi2c1.Init.NoStretchMode = I2C_NOSTRETCH_DISABLE;
+  if (HAL_I2C_Init(&hi2c1) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Analogue filter
+  */
+  if (HAL_I2CEx_ConfigAnalogFilter(&hi2c1, I2C_ANALOGFILTER_ENABLE) != HAL_OK)
+  {
+    Error_Handler();
+  }
+
+  /** Configure Digital filter
+  */
+  if (HAL_I2CEx_ConfigDigitalFilter(&hi2c1, 0) != HAL_OK)
+  {
+    Error_Handler();
+  }
+  /* USER CODE BEGIN I2C1_Init 2 */
+
+  /* USER CODE END I2C1_Init 2 */
+
 }
 
 /**
@@ -295,6 +395,7 @@ static void MX_GPIO_Init(void)
   __HAL_RCC_GPIOC_CLK_ENABLE();
   __HAL_RCC_GPIOF_CLK_ENABLE();
   __HAL_RCC_GPIOA_CLK_ENABLE();
+  __HAL_RCC_GPIOB_CLK_ENABLE();
 
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
@@ -324,7 +425,46 @@ static void MX_GPIO_Init(void)
 }
 
 /* USER CODE BEGIN 4 */
+/**
+ * @brief UART RX Complete Callback
+ * @note  Called when DMA has received a complete 3-byte frame
+ *        Frame format: [START=0x88, COMMAND, CHECKSUM]
+ *        Commands: 0x10=LED ON, 0x11=LED OFF
+ */
+void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
+{
+  if (huart->Instance == USART2)
+  {
+    // Extract frame bytes
+    uint8_t start = uart_rx_buffer[0];
+    uint8_t command = uart_rx_buffer[1];
+    uint8_t checksum = uart_rx_buffer[2];
 
+    // Validate frame: check START byte and checksum
+    if (start == 0x88 && checksum == (0x88 ^ command))
+    {
+      // Process valid commands
+      if (command == 0x10)
+      {
+        // Command 0x10: Turn LED ON
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+      }
+      else if (command == 0x11)
+      {
+        // Command 0x11: Turn LED OFF
+        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+      }
+      // Unknown commands are silently ignored
+
+      // Update OLED display with received command
+      Display_UpdateCommand(command);
+    }
+    // Invalid frames (wrong START or checksum) are silently ignored
+
+    // Restart DMA reception for next frame
+    HAL_UART_Receive_DMA(&huart2, uart_rx_buffer, 3);
+  }
+}
 /* USER CODE END 4 */
 
 /**
