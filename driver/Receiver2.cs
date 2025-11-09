@@ -9,7 +9,13 @@ namespace SimpleUartReceiver
     class Program
     {
         // ===== PROTOCOL CONSTANTS (must match STM32 side) =====
+        // RX Protocol: STM32 -> PC (4-byte frames, START=0xAA)
         private const byte PROTO_START = 0xAA;
+
+        // TX Protocol: PC -> STM32 (3-byte frames, START=0x88)
+        private const byte PROTO_START_TX = 0x88;
+        private const byte CMD_LED_ON = 0x10;
+        private const byte CMD_LED_OFF = 0x11;
 
         // Heading control (0x10-0x1F range)
         private const byte CMD_HDG_RESET = 0x10;
@@ -23,6 +29,12 @@ namespace SimpleUartReceiver
         private const byte CMD_VS_RESET = 0x30;
         private const byte CMD_VS_SET = 0x31;
 
+        // Button control (0x40-0x4F range)
+        private const byte CMD_BTN_AP_PRESS = 0x40;
+        private const byte CMD_BTN_HDG_PRESS = 0x41;
+        private const byte CMD_BTN_VS_PRESS = 0x42;
+        private const byte CMD_BTN_ALT_PRESS = 0x43;
+
         private const int FRAME_SIZE = 4;
 
         private static SerialPort _serialPort;
@@ -35,7 +47,9 @@ namespace SimpleUartReceiver
 
         static async Task Main(string[] args)
         {
-            Console.WriteLine("=== 4-Byte Protocol UART Receiver ===\n");
+            Console.WriteLine("=== UART Bidirectional Protocol ===");
+            Console.WriteLine("RX: 4-byte frames (STM32 -> PC)");
+            Console.WriteLine("TX: 3-byte frames (PC -> STM32)\n");
 
             // Configure serial port (adjust COM port to match your system)
             _serialPort = new SerialPort
@@ -53,7 +67,12 @@ namespace SimpleUartReceiver
                 // Open the port
                 _serialPort.Open();
                 Console.WriteLine($"Connected to {_serialPort.PortName} at {_serialPort.BaudRate} baud");
-                Console.WriteLine("Listening for protocol frames... (Press Ctrl+C to exit)\n");
+                Console.WriteLine("Bidirectional communication active!\n");
+                Console.WriteLine("=== Commands ===");
+                Console.WriteLine("Press '1' - Turn LED ON");
+                Console.WriteLine("Press '0' - Turn LED OFF");
+                Console.WriteLine("Press 'H' - Show help");
+                Console.WriteLine("Press Ctrl+C - Exit\n");
 
                 // Setup cancellation for Ctrl+C
                 _cts = new CancellationTokenSource();
@@ -63,8 +82,12 @@ namespace SimpleUartReceiver
                     _cts.Cancel();
                 };
 
-                // Start async receiving with protocol parsing
-                await ReceiveDataAsync(_cts.Token);
+                // Run both receive and console input tasks concurrently
+                Task receiveTask = ReceiveDataAsync(_cts.Token);
+                Task consoleTask = HandleConsoleInputAsync(_cts.Token);
+
+                // Wait for either task to complete (or cancellation)
+                await Task.WhenAny(receiveTask, consoleTask);
             }
             catch (Exception ex)
             {
@@ -210,6 +233,80 @@ namespace SimpleUartReceiver
         }
 
         /// <summary>
+        /// Sends a 3-byte command to STM32 (PC -> STM32 protocol)
+        /// Frame format: [START=0x88, COMMAND, CHECKSUM]
+        /// </summary>
+        private static void SendCommand(byte command)
+        {
+            byte[] frame = new byte[3];
+            frame[0] = PROTO_START_TX;  // START = 0x88
+            frame[1] = command;          // COMMAND
+            frame[2] = (byte)(PROTO_START_TX ^ command);  // CHECKSUM = START ^ COMMAND
+
+            try
+            {
+                _serialPort.Write(frame, 0, frame.Length);
+                string cmdName = command switch
+                {
+                    CMD_LED_ON => "LED_ON",
+                    CMD_LED_OFF => "LED_OFF",
+                    _ => $"0x{command:X2}"
+                };
+                Console.WriteLine($"[SENT] {cmdName} -> [0x{frame[0]:X2}, 0x{frame[1]:X2}, 0x{frame[2]:X2}]");
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[ERROR] Failed to send command: {ex.Message}");
+            }
+        }
+
+        /// <summary>
+        /// Handles console input for sending LED commands
+        /// </summary>
+        private static async Task HandleConsoleInputAsync(CancellationToken cancellationToken)
+        {
+            await Task.Run(() =>
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        if (Console.KeyAvailable)
+                        {
+                            var key = Console.ReadKey(intercept: true);
+
+                            switch (key.Key)
+                            {
+                                case ConsoleKey.D1:
+                                case ConsoleKey.NumPad1:
+                                    SendCommand(CMD_LED_ON);
+                                    break;
+
+                                case ConsoleKey.D0:
+                                case ConsoleKey.NumPad0:
+                                    SendCommand(CMD_LED_OFF);
+                                    break;
+
+                                case ConsoleKey.H:
+                                    Console.WriteLine("\n=== Commands ===");
+                                    Console.WriteLine("Press '1' - Turn LED ON");
+                                    Console.WriteLine("Press '0' - Turn LED OFF");
+                                    Console.WriteLine("Press 'H' - Show this help");
+                                    Console.WriteLine("Press Ctrl+C - Exit\n");
+                                    break;
+                            }
+                        }
+                        Thread.Sleep(50);  // Small delay to prevent CPU spinning
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                }
+            }, cancellationToken);
+        }
+
+        /// <summary>
         /// Interprets the command and operand, displaying human-readable output
         /// </summary>
         private static void ParseAndDisplayCommand(byte command, byte operand)
@@ -258,6 +355,27 @@ namespace SimpleUartReceiver
                     // VS:SET operand is a SIGNED 8-bit integer
                     sbyte vsDelta = (sbyte)operand;
                     Console.WriteLine($"[{timestamp}] VS:SET delta={vsDelta:+#;-#;0}");
+                    break;
+
+                // ===== BUTTON CONTROL =====
+                case CMD_BTN_AP_PRESS:
+                    // AP button pressed (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:AP_PRESS");
+                    break;
+
+                case CMD_BTN_HDG_PRESS:
+                    // HDG button pressed (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:HDG_PRESS");
+                    break;
+
+                case CMD_BTN_VS_PRESS:
+                    // VS button pressed (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:VS_PRESS");
+                    break;
+
+                case CMD_BTN_ALT_PRESS:
+                    // ALT button pressed (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:ALT_PRESS");
                     break;
 
                 default:
