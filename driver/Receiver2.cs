@@ -35,6 +35,9 @@ namespace SimpleUartReceiver
         private const byte CMD_BTN_VS_PRESS = 0x42;
         private const byte CMD_BTN_ALT_PRESS = 0x43;
 
+        // Encoder control (0x50-0x5F range)
+        private const byte CMD_ENC_MODE = 0x51;
+
         private const int FRAME_SIZE = 4;
 
         private static SerialPort _serialPort;
@@ -376,6 +379,20 @@ namespace SimpleUartReceiver
                 case CMD_BTN_ALT_PRESS:
                     // ALT button pressed (operand always 0x00)
                     Console.WriteLine($"[{timestamp}] BTN:ALT_PRESS");
+                    break;
+
+                // ===== ENCODER CONTROL =====
+                case CMD_ENC_MODE:
+                    // ENC:MODE indicates rotary encoder mode change
+                    // Operand values: 0x00=HDG, 0x01=ALT, 0x02=VS
+                    string modeName = operand switch
+                    {
+                        0x00 => "HDG (Heading)",
+                        0x01 => "ALT (Altitude)",
+                        0x02 => "VS (Vertical Speed)",
+                        _ => $"UNKNOWN (0x{operand:X2})"
+                    };
+                    Console.WriteLine($"[{timestamp}] ENC:MODE changed to {modeName}");
                     break;
 
                 default:
