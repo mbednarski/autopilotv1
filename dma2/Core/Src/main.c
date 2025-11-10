@@ -96,8 +96,15 @@ typedef struct {
 #define CMD_BTN_VS_TOGGLE   0x52
 #define CMD_BTN_ALT_TOGGLE  0x53
 
-// PC -> STM32 commands
-#define CMD_SET_AP_STATUS   0x60  // Set autopilot status (engaged + active modes)
+// PC -> STM32 commands (3-byte format: [START=0x88, COMMAND, CHECKSUM])
+#define CMD_AP_ENGAGE       0x60  // Engage autopilot
+#define CMD_AP_DISENGAGE    0x61  // Disengage autopilot
+#define CMD_HDG_MODE_ON     0x62  // Activate HDG mode
+#define CMD_HDG_MODE_OFF    0x63  // Deactivate HDG mode
+#define CMD_ALT_MODE_ON     0x64  // Activate ALT mode
+#define CMD_ALT_MODE_OFF    0x65  // Deactivate ALT mode
+#define CMD_VS_MODE_ON      0x66  // Activate VS mode
+#define CMD_VS_MODE_OFF     0x67  // Deactivate VS mode
 
 // Encoder mode-specific commands
 #define CMD_HDG_SET         0x11
@@ -263,8 +270,22 @@ void Display_UpdateCommand(uint8_t command)
         snprintf(cmd_text, sizeof(cmd_text), "CMD: VS TOGGLE");
     } else if (command == 0x53) {
         snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT TOGGLE");
-    } else if (command == CMD_SET_AP_STATUS) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: SET AP STATUS");
+    } else if (command == CMD_AP_ENGAGE) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: AP ENGAGE");
+    } else if (command == CMD_AP_DISENGAGE) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: AP DISENGAGE");
+    } else if (command == CMD_HDG_MODE_ON) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: HDG ON");
+    } else if (command == CMD_HDG_MODE_OFF) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: HDG OFF");
+    } else if (command == CMD_ALT_MODE_ON) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT ON");
+    } else if (command == CMD_ALT_MODE_OFF) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT OFF");
+    } else if (command == CMD_VS_MODE_ON) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: VS ON");
+    } else if (command == CMD_VS_MODE_OFF) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: VS OFF");
     } else {
         snprintf(cmd_text, sizeof(cmd_text), "CMD: UNKNOWN");
     }
@@ -284,45 +305,52 @@ void Display_UpdateCommand(uint8_t command)
 }
 
 /**
-  * @brief Update OLED display with autopilot status
+  * @brief Update OLED display with autopilot status (fixed-position layout)
   * @param status: AP status bitfield
+  *
+  * Display behavior:
+  * - AP disengaged: Display is cleared (blank)
+  * - AP engaged: Shows "AP" on line 0, mode indicators on line 1 at fixed positions
+  *
+  * Layout when AP engaged:
+  * Line 0: "AP"
+  * Line 1: "HDG|ALT|VS " (each mode at fixed position, shows "---" when inactive)
   */
 void Display_UpdateAPStatus(uint8_t status)
 {
-    char status_text[20];
-    char modes_text[20];
-
-    // Format status
-    if (status & AP_STATUS_ENGAGED) {
-        snprintf(status_text, sizeof(status_text), "AP: ENGAGED");
-    } else {
-        snprintf(status_text, sizeof(status_text), "AP: OFF");
+    // Check if AP is engaged
+    if (!(status & AP_STATUS_ENGAGED)) {
+        // AP disengaged - clear display
+        SSD1306_Clear();
+        SSD1306_UpdateScreen();
+        return;
     }
-
-    // Format active modes
-    char* modes_ptr = modes_text;
-    modes_ptr += snprintf(modes_ptr, sizeof(modes_text), "Modes:");
-    if (status & AP_STATUS_HDG_ACTIVE) {
-        modes_ptr += snprintf(modes_ptr, sizeof(modes_text) - (modes_ptr - modes_text), " HDG");
-    }
-    if (status & AP_STATUS_ALT_ACTIVE) {
-        modes_ptr += snprintf(modes_ptr, sizeof(modes_text) - (modes_ptr - modes_text), " ALT");
-    }
-    if (status & AP_STATUS_VS_ACTIVE) {
-        modes_ptr += snprintf(modes_ptr, sizeof(modes_text) - (modes_ptr - modes_text), " VS");
-    }
-    if (!(status & (AP_STATUS_HDG_ACTIVE | AP_STATUS_ALT_ACTIVE | AP_STATUS_VS_ACTIVE))) {
-        snprintf(modes_text, sizeof(modes_text), "Modes: NONE");
-    }
-
-    // Update display
+    
+    // AP engaged - show status with fixed-position mode indicators
     SSD1306_Clear();
+    
+    // Line 0: "AP" indicator
     SSD1306_SetCursor(0, 0);
-    SSD1306_Puts("Autopilot Status");
+    SSD1306_Puts("AP");
+    
+    // Line 1: Mode indicators at fixed positions
     SSD1306_SetCursor(0, 1);
-    SSD1306_Puts(status_text);
-    SSD1306_SetCursor(0, 2);
-    SSD1306_Puts(modes_text);
+    
+    // HDG indicator (positions 0-2)
+    SSD1306_Puts((status & AP_STATUS_HDG_ACTIVE) ? "HDG" : "---");
+    
+    // Separator
+    SSD1306_Puts("|");
+    
+    // ALT indicator (positions 4-6)
+    SSD1306_Puts((status & AP_STATUS_ALT_ACTIVE) ? "ALT" : "---");
+    
+    // Separator
+    SSD1306_Puts("|");
+    
+    // VS indicator (positions 8-10)
+    SSD1306_Puts((status & AP_STATUS_VS_ACTIVE) ? "VS " : "-- ");
+    
     SSD1306_UpdateScreen();
 }
 
@@ -754,22 +782,65 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         {
           // Command 0x10: Turn LED ON
           HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+          // Update OLED display with received command
+          Display_UpdateCommand(command);
         }
         else if (command == 0x11)
         {
           // Command 0x11: Turn LED OFF
           HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+          // Update OLED display with received command
+          Display_UpdateCommand(command);
         }
-        else if (command == CMD_SET_AP_STATUS)
+        else if (command == CMD_AP_ENGAGE)
         {
-          // Command 0x60: Set AP status (operand = status bitfield)
-          ap_status = uart_rx_buffer[1];  // operand byte contains status
+          // Command 0x60: Engage autopilot
+          ap_status |= AP_STATUS_ENGAGED;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_AP_DISENGAGE)
+        {
+          // Command 0x61: Disengage autopilot (clears all modes too)
+          ap_status = 0;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_HDG_MODE_ON)
+        {
+          // Command 0x62: Activate HDG mode
+          ap_status |= AP_STATUS_HDG_ACTIVE;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_HDG_MODE_OFF)
+        {
+          // Command 0x63: Deactivate HDG mode
+          ap_status &= ~AP_STATUS_HDG_ACTIVE;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_ALT_MODE_ON)
+        {
+          // Command 0x64: Activate ALT mode
+          ap_status |= AP_STATUS_ALT_ACTIVE;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_ALT_MODE_OFF)
+        {
+          // Command 0x65: Deactivate ALT mode
+          ap_status &= ~AP_STATUS_ALT_ACTIVE;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_VS_MODE_ON)
+        {
+          // Command 0x66: Activate VS mode
+          ap_status |= AP_STATUS_VS_ACTIVE;
+          Display_UpdateAPStatus(ap_status);
+        }
+        else if (command == CMD_VS_MODE_OFF)
+        {
+          // Command 0x67: Deactivate VS mode
+          ap_status &= ~AP_STATUS_VS_ACTIVE;
           Display_UpdateAPStatus(ap_status);
         }
         // Unknown commands are silently ignored
-
-      // Update OLED display with received command
-      Display_UpdateCommand(command);
     }
     // Invalid frames (wrong START or checksum) are silently ignored
 

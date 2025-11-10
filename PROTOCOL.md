@@ -159,7 +159,7 @@ Altitude mode toggle button pressed.
 Turn on the onboard LED (LD2).
 
 - **Command byte**: `0x10`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c:447)
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
 - **Example**: `[0x88, 0x10, 0x98]`
 - **Checksum**: `0x88 ^ 0x10 = 0x98`
 
@@ -167,9 +167,81 @@ Turn on the onboard LED (LD2).
 Turn off the onboard LED (LD2).
 
 - **Command byte**: `0x11`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c:452)
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
 - **Example**: `[0x88, 0x11, 0x99]`
 - **Checksum**: `0x88 ^ 0x11 = 0x99`
+
+#### AP:ENGAGE (0x60)
+Engage the autopilot system.
+
+- **Command byte**: `0x60`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x60, 0xE8]`
+- **Checksum**: `0x88 ^ 0x60 = 0xE8`
+- **Effect**: Sets AP_STATUS_ENGAGED bit, updates OLED display
+
+#### AP:DISENGAGE (0x61)
+Disengage the autopilot system (clears all active modes).
+
+- **Command byte**: `0x61`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x61, 0xE9]`
+- **Checksum**: `0x88 ^ 0x61 = 0xE9`
+- **Effect**: Clears all AP status bits, blanks OLED display
+
+#### HDG:MODE_ON (0x62)
+Activate heading mode.
+
+- **Command byte**: `0x62`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x62, 0xEA]`
+- **Checksum**: `0x88 ^ 0x62 = 0xEA`
+- **Effect**: Sets AP_STATUS_HDG_ACTIVE bit, updates display
+
+#### HDG:MODE_OFF (0x63)
+Deactivate heading mode.
+
+- **Command byte**: `0x63`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x63, 0xEB]`
+- **Checksum**: `0x88 ^ 0x63 = 0xEB`
+- **Effect**: Clears AP_STATUS_HDG_ACTIVE bit, updates display
+
+#### ALT:MODE_ON (0x64)
+Activate altitude mode.
+
+- **Command byte**: `0x64`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x64, 0xEC]`
+- **Checksum**: `0x88 ^ 0x64 = 0xEC`
+- **Effect**: Sets AP_STATUS_ALT_ACTIVE bit, updates display
+
+#### ALT:MODE_OFF (0x65)
+Deactivate altitude mode.
+
+- **Command byte**: `0x65`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x65, 0xED]`
+- **Checksum**: `0x88 ^ 0x65 = 0xED`
+- **Effect**: Clears AP_STATUS_ALT_ACTIVE bit, updates display
+
+#### VS:MODE_ON (0x66)
+Activate vertical speed mode.
+
+- **Command byte**: `0x66`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x66, 0xEE]`
+- **Checksum**: `0x88 ^ 0x66 = 0xEE`
+- **Effect**: Sets AP_STATUS_VS_ACTIVE bit, updates display
+
+#### VS:MODE_OFF (0x67)
+Deactivate vertical speed mode.
+
+- **Command byte**: `0x67`
+- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Example**: `[0x88, 0x67, 0xEF]`
+- **Checksum**: `0x88 ^ 0x67 = 0xEF`
+- **Effect**: Clears AP_STATUS_VS_ACTIVE bit, updates display
 
 ## Implementation Notes
 

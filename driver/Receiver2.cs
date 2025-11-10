@@ -36,7 +36,14 @@ namespace SimpleUartReceiver
         private const byte CMD_BTN_ALT_TOGGLE = 0x53;
 
         // AP status control (0x60-0x6F range)
-        private const byte CMD_SET_AP_STATUS = 0x60;
+        private const byte CMD_AP_ENGAGE = 0x60;
+        private const byte CMD_AP_DISENGAGE = 0x61;
+        private const byte CMD_HDG_MODE_ON = 0x62;
+        private const byte CMD_HDG_MODE_OFF = 0x63;
+        private const byte CMD_ALT_MODE_ON = 0x64;
+        private const byte CMD_ALT_MODE_OFF = 0x65;
+        private const byte CMD_VS_MODE_ON = 0x66;
+        private const byte CMD_VS_MODE_OFF = 0x67;
 
         private const int FRAME_SIZE = 4;
 
@@ -72,12 +79,21 @@ namespace SimpleUartReceiver
                 Console.WriteLine($"Connected to {_serialPort.PortName} at {_serialPort.BaudRate} baud");
                 Console.WriteLine("Bidirectional communication active!\n");
                 Console.WriteLine("=== Commands ===");
-                Console.WriteLine("Press '1' - Turn LED ON");
-                Console.WriteLine("Press '0' - Turn LED OFF");
-                Console.WriteLine("Press 'A' - Send AP Status (engaged, HDG+ALT active)");
-                Console.WriteLine("Press 'B' - Send AP Status (disengaged)");
-                Console.WriteLine("Press 'H' - Show help");
-                Console.WriteLine("Press Ctrl+C - Exit\n");
+                Console.WriteLine("LED Control:");
+                Console.WriteLine("  '1' - Turn LED ON");
+                Console.WriteLine("  '0' - Turn LED OFF");
+                Console.WriteLine("\nAP Control:");
+                Console.WriteLine("  'E' - Engage AP");
+                Console.WriteLine("  'D' - Disengage AP");
+                Console.WriteLine("\nMode Control:");
+                Console.WriteLine("  'H' - HDG mode ON");
+                Console.WriteLine("  'Shift+H' - HDG mode OFF");
+                Console.WriteLine("  'A' - ALT mode ON");
+                Console.WriteLine("  'Shift+A' - ALT mode OFF");
+                Console.WriteLine("  'V' - VS mode ON");
+                Console.WriteLine("  'Shift+V' - VS mode OFF");
+                Console.WriteLine("\n  '?' - Show help");
+                Console.WriteLine("  Ctrl+C - Exit\n");
 
                 // Setup cancellation for Ctrl+C
                 _cts = new CancellationTokenSource();
@@ -265,7 +281,14 @@ namespace SimpleUartReceiver
                 {
                     CMD_LED_ON => "LED_ON",
                     CMD_LED_OFF => "LED_OFF",
-                    CMD_SET_AP_STATUS => $"SET_AP_STATUS(0x{operand:X2})",
+                    CMD_AP_ENGAGE => "AP_ENGAGE",
+                    CMD_AP_DISENGAGE => "AP_DISENGAGE",
+                    CMD_HDG_MODE_ON => "HDG_MODE_ON",
+                    CMD_HDG_MODE_OFF => "HDG_MODE_OFF",
+                    CMD_ALT_MODE_ON => "ALT_MODE_ON",
+                    CMD_ALT_MODE_OFF => "ALT_MODE_OFF",
+                    CMD_VS_MODE_ON => "VS_MODE_ON",
+                    CMD_VS_MODE_OFF => "VS_MODE_OFF",
                     _ => $"0x{command:X2}"
                 };
                 Console.WriteLine($"[SENT] {cmdName} -> [0x{frame[0]:X2}, 0x{frame[1]:X2}, 0x{frame[2]:X2}]");
@@ -303,25 +326,57 @@ namespace SimpleUartReceiver
                                     SendCommand(CMD_LED_OFF);
                                     break;
 
-                                case ConsoleKey.A:
-                                    // Send AP engaged with HDG and ALT active
-                                    // Bitfield: 0x01 (engaged) | 0x02 (HDG) | 0x04 (ALT) = 0x07
-                                    SendCommandWithOperand(CMD_SET_AP_STATUS, 0x07);
+                                case ConsoleKey.E:
+                                    // Engage autopilot
+                                    SendCommand(CMD_AP_ENGAGE);
                                     break;
 
-                                case ConsoleKey.B:
-                                    // Send AP disengaged (all modes off)
-                                    SendCommandWithOperand(CMD_SET_AP_STATUS, 0x00);
+                                case ConsoleKey.D:
+                                    // Disengage autopilot
+                                    SendCommand(CMD_AP_DISENGAGE);
                                     break;
 
                                 case ConsoleKey.H:
+                                    // HDG mode toggle
+                                    if ((key.Modifiers & ConsoleModifiers.Shift) != 0)
+                                        SendCommand(CMD_HDG_MODE_OFF);
+                                    else
+                                        SendCommand(CMD_HDG_MODE_ON);
+                                    break;
+
+                                case ConsoleKey.A:
+                                    // ALT mode toggle
+                                    if ((key.Modifiers & ConsoleModifiers.Shift) != 0)
+                                        SendCommand(CMD_ALT_MODE_OFF);
+                                    else
+                                        SendCommand(CMD_ALT_MODE_ON);
+                                    break;
+
+                                case ConsoleKey.V:
+                                    // VS mode toggle
+                                    if ((key.Modifiers & ConsoleModifiers.Shift) != 0)
+                                        SendCommand(CMD_VS_MODE_OFF);
+                                    else
+                                        SendCommand(CMD_VS_MODE_ON);
+                                    break;
+
+                                case ConsoleKey.Oem2:  // '?' key (Shift+/)
                                     Console.WriteLine("\n=== Commands ===");
-                                    Console.WriteLine("Press '1' - Turn LED ON");
-                                    Console.WriteLine("Press '0' - Turn LED OFF");
-                                    Console.WriteLine("Press 'A' - Send AP Status (engaged, HDG+ALT active)");
-                                    Console.WriteLine("Press 'B' - Send AP Status (disengaged)");
-                                    Console.WriteLine("Press 'H' - Show this help");
-                                    Console.WriteLine("Press Ctrl+C - Exit\n");
+                                    Console.WriteLine("LED Control:");
+                                    Console.WriteLine("  '1' - Turn LED ON");
+                                    Console.WriteLine("  '0' - Turn LED OFF");
+                                    Console.WriteLine("\nAP Control:");
+                                    Console.WriteLine("  'E' - Engage AP");
+                                    Console.WriteLine("  'D' - Disengage AP");
+                                    Console.WriteLine("\nMode Control:");
+                                    Console.WriteLine("  'H' - HDG mode ON");
+                                    Console.WriteLine("  'Shift+H' - HDG mode OFF");
+                                    Console.WriteLine("  'A' - ALT mode ON");
+                                    Console.WriteLine("  'Shift+A' - ALT mode OFF");
+                                    Console.WriteLine("  'V' - VS mode ON");
+                                    Console.WriteLine("  'Shift+V' - VS mode OFF");
+                                    Console.WriteLine("\n  '?' - Show this help");
+                                    Console.WriteLine("  Ctrl+C - Exit\n");
                                     break;
                             }
                         }
