@@ -1,2 +1,3 @@
 - refer to @PROTOCOL.md when need to understand communcation protcol between PC and STM32
 - I will use stm32 cube ide for chip configruation
+- I will be buuuilding and running both projects

@@ -49,6 +49,7 @@ namespace SimpleUartReceiver
 
         private static SerialPort _serialPort;
         private static CancellationTokenSource _cts;
+        private static SimConnectManager _simConnect;
 
         // Statistics for debugging
         private static int _validFrames = 0;
@@ -78,6 +79,11 @@ namespace SimpleUartReceiver
                 _serialPort.Open();
                 Console.WriteLine($"Connected to {_serialPort.PortName} at {_serialPort.BaudRate} baud");
                 Console.WriteLine("Bidirectional communication active!\n");
+
+                // Initialize SimConnect
+                _simConnect = new SimConnectManager();
+                Console.WriteLine("Attempting to connect to MSFS2024...");
+                _simConnect.Connect();
                 Console.WriteLine("=== Commands ===");
                 Console.WriteLine("LED Control:");
                 Console.WriteLine("  '1' - Turn LED ON");
@@ -103,12 +109,13 @@ namespace SimpleUartReceiver
                     _cts.Cancel();
                 };
 
-                // Run both receive and console input tasks concurrently
+                // Run receive, console input, and SimConnect message processing concurrently
                 Task receiveTask = ReceiveDataAsync(_cts.Token);
                 Task consoleTask = HandleConsoleInputAsync(_cts.Token);
+                Task simConnectTask = ProcessSimConnectMessagesAsync(_cts.Token);
 
-                // Wait for either task to complete (or cancellation)
-                await Task.WhenAny(receiveTask, consoleTask);
+                // Wait for any task to complete (or cancellation)
+                await Task.WhenAny(receiveTask, consoleTask, simConnectTask);
             }
             catch (Exception ex)
             {
@@ -117,6 +124,8 @@ namespace SimpleUartReceiver
             finally
             {
                 // Cleanup
+                _simConnect?.Dispose();
+
                 if (_serialPort?.IsOpen == true)
                 {
                     _serialPort.Close();
@@ -183,6 +192,33 @@ namespace SimpleUartReceiver
                     break;
                 }
             }
+        }
+
+        /// <summary>
+        /// Periodically process SimConnect messages
+        /// </summary>
+        private static async Task ProcessSimConnectMessagesAsync(CancellationToken cancellationToken)
+        {
+            await Task.Run(() =>
+            {
+                while (!cancellationToken.IsCancellationRequested)
+                {
+                    try
+                    {
+                        _simConnect?.ReceiveMessage();
+                        Thread.Sleep(10);  // Process messages every 10ms
+                    }
+                    catch (OperationCanceledException)
+                    {
+                        break;
+                    }
+                    catch (Exception ex)
+                    {
+                        Console.WriteLine($"\n[SimConnect] Error: {ex.Message}");
+                        Thread.Sleep(1000);  // Back off on error
+                    }
+                }
+            }, cancellationToken);
         }
 
         /// <summary>
@@ -415,6 +451,9 @@ namespace SimpleUartReceiver
                     // Cast to sbyte to get the signed value (-128 to +127)
                     sbyte hdgDelta = (sbyte)operand;
                     Console.WriteLine($"[{timestamp}] HDG:SET delta={hdgDelta:+#;-#;0}");
+
+                    // Send to MSFS2024 via SimConnect
+                    _simConnect?.AdjustHeading(hdgDelta);
                     break;
 
                 // ===== ALTITUDE CONTROL =====
