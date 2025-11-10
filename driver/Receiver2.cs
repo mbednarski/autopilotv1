@@ -35,6 +35,9 @@ namespace SimpleUartReceiver
         private const byte CMD_BTN_VS_TOGGLE = 0x52;
         private const byte CMD_BTN_ALT_TOGGLE = 0x53;
 
+        // AP status control (0x60-0x6F range)
+        private const byte CMD_SET_AP_STATUS = 0x60;
+
         private const int FRAME_SIZE = 4;
 
         private static SerialPort _serialPort;
@@ -71,6 +74,8 @@ namespace SimpleUartReceiver
                 Console.WriteLine("=== Commands ===");
                 Console.WriteLine("Press '1' - Turn LED ON");
                 Console.WriteLine("Press '0' - Turn LED OFF");
+                Console.WriteLine("Press 'A' - Send AP Status (engaged, HDG+ALT active)");
+                Console.WriteLine("Press 'B' - Send AP Status (disengaged)");
                 Console.WriteLine("Press 'H' - Show help");
                 Console.WriteLine("Press Ctrl+C - Exit\n");
 
@@ -238,9 +243,19 @@ namespace SimpleUartReceiver
         /// </summary>
         private static void SendCommand(byte command)
         {
+            SendCommandWithOperand(command, 0x00);
+        }
+
+        /// <summary>
+        /// Sends a 3-byte command with operand to STM32 (PC -> STM32 protocol)
+        /// Frame format: [START=0x88, COMMAND, CHECKSUM]
+        /// Note: Protocol uses 3-byte frames, so operand is sent as command parameter
+        /// </summary>
+        private static void SendCommandWithOperand(byte command, byte operand)
+        {
             byte[] frame = new byte[3];
             frame[0] = PROTO_START_TX;  // START = 0x88
-            frame[1] = command;          // COMMAND
+            frame[1] = command;          // COMMAND (operand encoded in command byte for 3-byte protocol)
             frame[2] = (byte)(PROTO_START_TX ^ command);  // CHECKSUM = START ^ COMMAND
 
             try
@@ -250,6 +265,7 @@ namespace SimpleUartReceiver
                 {
                     CMD_LED_ON => "LED_ON",
                     CMD_LED_OFF => "LED_OFF",
+                    CMD_SET_AP_STATUS => $"SET_AP_STATUS(0x{operand:X2})",
                     _ => $"0x{command:X2}"
                 };
                 Console.WriteLine($"[SENT] {cmdName} -> [0x{frame[0]:X2}, 0x{frame[1]:X2}, 0x{frame[2]:X2}]");
@@ -287,10 +303,23 @@ namespace SimpleUartReceiver
                                     SendCommand(CMD_LED_OFF);
                                     break;
 
+                                case ConsoleKey.A:
+                                    // Send AP engaged with HDG and ALT active
+                                    // Bitfield: 0x01 (engaged) | 0x02 (HDG) | 0x04 (ALT) = 0x07
+                                    SendCommandWithOperand(CMD_SET_AP_STATUS, 0x07);
+                                    break;
+
+                                case ConsoleKey.B:
+                                    // Send AP disengaged (all modes off)
+                                    SendCommandWithOperand(CMD_SET_AP_STATUS, 0x00);
+                                    break;
+
                                 case ConsoleKey.H:
                                     Console.WriteLine("\n=== Commands ===");
                                     Console.WriteLine("Press '1' - Turn LED ON");
                                     Console.WriteLine("Press '0' - Turn LED OFF");
+                                    Console.WriteLine("Press 'A' - Send AP Status (engaged, HDG+ALT active)");
+                                    Console.WriteLine("Press 'B' - Send AP Status (disengaged)");
                                     Console.WriteLine("Press 'H' - Show this help");
                                     Console.WriteLine("Press Ctrl+C - Exit\n");
                                     break;

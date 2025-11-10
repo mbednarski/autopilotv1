@@ -96,6 +96,9 @@ typedef struct {
 #define CMD_BTN_VS_TOGGLE   0x52
 #define CMD_BTN_ALT_TOGGLE  0x53
 
+// PC -> STM32 commands
+#define CMD_SET_AP_STATUS   0x60  // Set autopilot status (engaged + active modes)
+
 // Encoder mode-specific commands
 #define CMD_HDG_SET         0x11
 #define CMD_ALT_SET         0x21
@@ -105,6 +108,17 @@ typedef struct {
 #define ENC_MODE_HDG        0x00
 #define ENC_MODE_ALT        0x01
 #define ENC_MODE_VS         0x02
+
+// AP status bitfield (operand for CMD_SET_AP_STATUS)
+// Bit 0: AP engaged (1=engaged, 0=disengaged)
+// Bit 1: HDG mode active
+// Bit 2: ALT mode active
+// Bit 3: VS mode active
+// Bits 4-7: Reserved
+#define AP_STATUS_ENGAGED   (1 << 0)
+#define AP_STATUS_HDG_ACTIVE (1 << 1)
+#define AP_STATUS_ALT_ACTIVE (1 << 2)
+#define AP_STATUS_VS_ACTIVE  (1 << 3)
 
 #define COUNT_BUTTONS 4
 #define BUTTON_DEBOUNCE_MS 200   // Button debounce time (ms)
@@ -146,6 +160,9 @@ static RotaryEncoder_t rotary_encoder = {
     .last_btn_time = 0,
     .tx_buffer = {0}
 };
+
+// Autopilot status state
+static uint8_t ap_status = 0;  // Bitfield: engaged + active modes
 
 void SendButtonCommand(Button_t* btn, uint8_t cmd, uint8_t operand)
 {
@@ -225,9 +242,9 @@ void CycleEncoderMode(RotaryEncoder_t* enc)
 //}
 
 /**
- * @brief Update OLED display with received command information
- * @param command: Received command byte
- */
+  * @brief Update OLED display with received command information
+  * @param command: Received command byte
+  */
 void Display_UpdateCommand(uint8_t command)
 {
     char cmd_text[20];
@@ -246,6 +263,8 @@ void Display_UpdateCommand(uint8_t command)
         snprintf(cmd_text, sizeof(cmd_text), "CMD: VS TOGGLE");
     } else if (command == 0x53) {
         snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT TOGGLE");
+    } else if (command == CMD_SET_AP_STATUS) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: SET AP STATUS");
     } else {
         snprintf(cmd_text, sizeof(cmd_text), "CMD: UNKNOWN");
     }
@@ -261,6 +280,49 @@ void Display_UpdateCommand(uint8_t command)
     SSD1306_Puts(cmd_text);
     SSD1306_SetCursor(0, 2);
     SSD1306_Puts(code_text);
+    SSD1306_UpdateScreen();
+}
+
+/**
+  * @brief Update OLED display with autopilot status
+  * @param status: AP status bitfield
+  */
+void Display_UpdateAPStatus(uint8_t status)
+{
+    char status_text[20];
+    char modes_text[20];
+
+    // Format status
+    if (status & AP_STATUS_ENGAGED) {
+        snprintf(status_text, sizeof(status_text), "AP: ENGAGED");
+    } else {
+        snprintf(status_text, sizeof(status_text), "AP: OFF");
+    }
+
+    // Format active modes
+    char* modes_ptr = modes_text;
+    modes_ptr += snprintf(modes_ptr, sizeof(modes_text), "Modes:");
+    if (status & AP_STATUS_HDG_ACTIVE) {
+        modes_ptr += snprintf(modes_ptr, sizeof(modes_text) - (modes_ptr - modes_text), " HDG");
+    }
+    if (status & AP_STATUS_ALT_ACTIVE) {
+        modes_ptr += snprintf(modes_ptr, sizeof(modes_text) - (modes_ptr - modes_text), " ALT");
+    }
+    if (status & AP_STATUS_VS_ACTIVE) {
+        modes_ptr += snprintf(modes_ptr, sizeof(modes_text) - (modes_ptr - modes_text), " VS");
+    }
+    if (!(status & (AP_STATUS_HDG_ACTIVE | AP_STATUS_ALT_ACTIVE | AP_STATUS_VS_ACTIVE))) {
+        snprintf(modes_text, sizeof(modes_text), "Modes: NONE");
+    }
+
+    // Update display
+    SSD1306_Clear();
+    SSD1306_SetCursor(0, 0);
+    SSD1306_Puts("Autopilot Status");
+    SSD1306_SetCursor(0, 1);
+    SSD1306_Puts(status_text);
+    SSD1306_SetCursor(0, 2);
+    SSD1306_Puts(modes_text);
     SSD1306_UpdateScreen();
 }
 
@@ -688,17 +750,23 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
     if (start == 0x88 && checksum == (0x88 ^ command))
     {
       // Process valid commands
-      if (command == 0x10)
-      {
-        // Command 0x10: Turn LED ON
-        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-      }
-      else if (command == 0x11)
-      {
-        // Command 0x11: Turn LED OFF
-        HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-      }
-      // Unknown commands are silently ignored
+        if (command == 0x10)
+        {
+          // Command 0x10: Turn LED ON
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+        }
+        else if (command == 0x11)
+        {
+          // Command 0x11: Turn LED OFF
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
+        }
+        else if (command == CMD_SET_AP_STATUS)
+        {
+          // Command 0x60: Set AP status (operand = status bitfield)
+          ap_status = uart_rx_buffer[1];  // operand byte contains status
+          Display_UpdateAPStatus(ap_status);
+        }
+        // Unknown commands are silently ignored
 
       // Update OLED display with received command
       Display_UpdateCommand(command);
