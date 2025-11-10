@@ -56,6 +56,13 @@ namespace SimpleUartReceiver
         private static int _checksumErrors = 0;
         private static int _unknownCommands = 0;
 
+        // Autopilot status tracking (for change detection)
+        private static bool _lastApMasterEngaged = false;
+        private static bool _lastApHeadingActive = false;
+        private static bool _lastApAltitudeActive = false;
+        private static bool _lastApVerticalSpeedActive = false;
+        private static bool _statusInitialized = false;
+
         static async Task Main(string[] args)
         {
             Console.WriteLine("=== UART Bidirectional Protocol ===");
@@ -195,7 +202,7 @@ namespace SimpleUartReceiver
         }
 
         /// <summary>
-        /// Periodically process SimConnect messages
+        /// Periodically process SimConnect messages and monitor autopilot status changes
         /// </summary>
         private static async Task ProcessSimConnectMessagesAsync(CancellationToken cancellationToken)
         {
@@ -206,6 +213,13 @@ namespace SimpleUartReceiver
                     try
                     {
                         _simConnect?.ReceiveMessage();
+
+                        // Check for autopilot status changes and send updates to STM32
+                        if (_simConnect?.IsConnected == true && _simConnect.IsAutopilotStatusValid)
+                        {
+                            CheckAndSendStatusUpdates();
+                        }
+
                         Thread.Sleep(10);  // Process messages every 10ms
                     }
                     catch (OperationCanceledException)
@@ -219,6 +233,58 @@ namespace SimpleUartReceiver
                     }
                 }
             }, cancellationToken);
+        }
+
+        /// <summary>
+        /// Checks autopilot status for changes and sends updates to STM32
+        /// </summary>
+        private static void CheckAndSendStatusUpdates()
+        {
+            // Get current status from SimConnect
+            bool currentApMaster = _simConnect.IsAutopilotEngaged;
+            bool currentApHeading = _simConnect.IsHeadingModeActive;
+            bool currentApAltitude = _simConnect.IsAltitudeModeActive;
+            bool currentApVerticalSpeed = _simConnect.IsVerticalSpeedModeActive;
+
+            // On first run, initialize the state without sending commands
+            if (!_statusInitialized)
+            {
+                _lastApMasterEngaged = currentApMaster;
+                _lastApHeadingActive = currentApHeading;
+                _lastApAltitudeActive = currentApAltitude;
+                _lastApVerticalSpeedActive = currentApVerticalSpeed;
+                _statusInitialized = true;
+                Console.WriteLine($"[Status] Initial AP state: Master={currentApMaster}, HDG={currentApHeading}, ALT={currentApAltitude}, VS={currentApVerticalSpeed}");
+                return;
+            }
+
+            // Check AP Master status change
+            if (currentApMaster != _lastApMasterEngaged)
+            {
+                SendCommand(currentApMaster ? CMD_AP_ENGAGE : CMD_AP_DISENGAGE);
+                _lastApMasterEngaged = currentApMaster;
+            }
+
+            // Check Heading mode status change
+            if (currentApHeading != _lastApHeadingActive)
+            {
+                SendCommand(currentApHeading ? CMD_HDG_MODE_ON : CMD_HDG_MODE_OFF);
+                _lastApHeadingActive = currentApHeading;
+            }
+
+            // Check Altitude mode status change
+            if (currentApAltitude != _lastApAltitudeActive)
+            {
+                SendCommand(currentApAltitude ? CMD_ALT_MODE_ON : CMD_ALT_MODE_OFF);
+                _lastApAltitudeActive = currentApAltitude;
+            }
+
+            // Check Vertical Speed mode status change
+            if (currentApVerticalSpeed != _lastApVerticalSpeedActive)
+            {
+                SendCommand(currentApVerticalSpeed ? CMD_VS_MODE_ON : CMD_VS_MODE_OFF);
+                _lastApVerticalSpeedActive = currentApVerticalSpeed;
+            }
         }
 
         /// <summary>

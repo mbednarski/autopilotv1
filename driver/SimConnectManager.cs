@@ -14,6 +14,13 @@ public class SimConnectManager : IDisposable
     private int _currentHeading;
     private bool _headingValid;
 
+    // Autopilot status tracking
+    private bool _apMasterEngaged;
+    private bool _apHeadingActive;
+    private bool _apAltitudeActive;
+    private bool _apVerticalSpeedActive;
+    private bool _apStatusValid;
+
     // SimConnect enum definitions
     private enum DEFINITIONS
     {
@@ -35,11 +42,15 @@ public class SimConnectManager : IDisposable
         Default
     }
 
-    // Data structure for autopilot heading
+    // Data structure for autopilot data
     [StructLayout(LayoutKind.Sequential, Pack = 1)]
     private struct AutopilotData
     {
-        public double HeadingBug;  // AUTOPILOT HEADING LOCK DIR
+        public double HeadingBug;         // AUTOPILOT HEADING LOCK DIR
+        public int ApMaster;              // AUTOPILOT MASTER (1 = engaged, 0 = disengaged)
+        public int ApHeadingLock;         // AUTOPILOT HEADING LOCK (1 = active, 0 = inactive)
+        public int ApAltitudeLock;        // AUTOPILOT ALTITUDE LOCK (1 = active, 0 = inactive)
+        public int ApVerticalHold;        // AUTOPILOT VERTICAL HOLD (1 = active, 0 = inactive)
     }
 
     public bool IsConnected
@@ -50,6 +61,31 @@ public class SimConnectManager : IDisposable
     public int CurrentHeading
     {
         get { lock (_lock) return _currentHeading; }
+    }
+
+    public bool IsAutopilotEngaged
+    {
+        get { lock (_lock) return _apMasterEngaged; }
+    }
+
+    public bool IsHeadingModeActive
+    {
+        get { lock (_lock) return _apHeadingActive; }
+    }
+
+    public bool IsAltitudeModeActive
+    {
+        get { lock (_lock) return _apAltitudeActive; }
+    }
+
+    public bool IsVerticalSpeedModeActive
+    {
+        get { lock (_lock) return _apVerticalSpeedActive; }
+    }
+
+    public bool IsAutopilotStatusValid
+    {
+        get { lock (_lock) return _apStatusValid; }
     }
 
     /// <summary>
@@ -72,12 +108,48 @@ public class SimConnectManager : IDisposable
                 _simConnect.OnRecvException += OnRecvException;
                 _simConnect.OnRecvSimobjectData += OnRecvSimobjectData;
 
-                // Define data structure for autopilot heading
+                // Define data structure for autopilot data
                 _simConnect.AddToDataDefinition(
                     DEFINITIONS.AutopilotData,
                     "AUTOPILOT HEADING LOCK DIR",
                     "degrees",
                     SIMCONNECT_DATATYPE.FLOAT64,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+
+                _simConnect.AddToDataDefinition(
+                    DEFINITIONS.AutopilotData,
+                    "AUTOPILOT MASTER",
+                    "bool",
+                    SIMCONNECT_DATATYPE.INT32,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+
+                _simConnect.AddToDataDefinition(
+                    DEFINITIONS.AutopilotData,
+                    "AUTOPILOT HEADING LOCK",
+                    "bool",
+                    SIMCONNECT_DATATYPE.INT32,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+
+                _simConnect.AddToDataDefinition(
+                    DEFINITIONS.AutopilotData,
+                    "AUTOPILOT ALTITUDE LOCK",
+                    "bool",
+                    SIMCONNECT_DATATYPE.INT32,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+
+                _simConnect.AddToDataDefinition(
+                    DEFINITIONS.AutopilotData,
+                    "AUTOPILOT VERTICAL HOLD",
+                    "bool",
+                    SIMCONNECT_DATATYPE.INT32,
                     0.0f,
                     SimConnect.SIMCONNECT_UNUSED
                 );
@@ -199,6 +271,7 @@ public class SimConnectManager : IDisposable
         {
             _isConnected = false;
             _headingValid = false;
+            _apStatusValid = false;
             Console.WriteLine("[SimConnect] MSFS closed - disconnected");
         }
     }
@@ -218,6 +291,13 @@ public class SimConnectManager : IDisposable
             {
                 _currentHeading = (int)Math.Round(apData.HeadingBug);
                 _headingValid = true;
+
+                // Update autopilot status flags
+                _apMasterEngaged = apData.ApMaster != 0;
+                _apHeadingActive = apData.ApHeadingLock != 0;
+                _apAltitudeActive = apData.ApAltitudeLock != 0;
+                _apVerticalSpeedActive = apData.ApVerticalHold != 0;
+                _apStatusValid = true;
             }
         }
     }
@@ -232,6 +312,7 @@ public class SimConnectManager : IDisposable
                 _simConnect = null;
                 _isConnected = false;
                 _headingValid = false;
+                _apStatusValid = false;
                 Console.WriteLine("[SimConnect] Disconnected");
             }
         }
