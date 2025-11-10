@@ -218,24 +218,17 @@ const char* GetModeName(uint8_t mode)
 }
 
 /**
- * @brief Cycle encoder mode and send mode change command
+ * @brief Cycle encoder mode
  * @param enc: Pointer to encoder structure
+ * @note Display update is handled by Display_UpdateAPStatus which always shows encoder mode
  */
 void CycleEncoderMode(RotaryEncoder_t* enc)
 {
     // Cycle through modes: HDG -> ALT -> VS -> HDG
     enc->mode = (enc->mode + 1) % 3;
-
-    // Update OLED display (no command sent as per user instruction)
-    char mode_text[20];
-    snprintf(mode_text, sizeof(mode_text), "Mode: %s", GetModeName(enc->mode));
-
-    SSD1306_Clear();
-    SSD1306_SetCursor(0, 0);
-    SSD1306_Puts("Encoder Mode");
-    SSD1306_SetCursor(0, 1);
-    SSD1306_Puts(mode_text);
-    SSD1306_UpdateScreen();
+    
+    // Update display to show new encoder mode
+    Display_UpdateAPStatus(ap_status);
 }
 
 //void HAL_GPIO_EXTI_Callback(uint16_t GPIO_Pin)
@@ -251,89 +244,42 @@ void CycleEncoderMode(RotaryEncoder_t* enc)
 /**
   * @brief Update OLED display with received command information
   * @param command: Received command byte
+  * @note This function is no longer used - AP status display handles all updates
   */
 void Display_UpdateCommand(uint8_t command)
 {
-    char cmd_text[20];
-    char code_text[20];
-
-    // Format command name
-    if (command == 0x10) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: LED ON");
-    } else if (command == 0x11) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: LED OFF");
-    } else if (command == 0x50) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: AP TOGGLE");
-    } else if (command == 0x51) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: HDG TOGGLE");
-    } else if (command == 0x52) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: VS TOGGLE");
-    } else if (command == 0x53) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT TOGGLE");
-    } else if (command == CMD_AP_ENGAGE) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: AP ENGAGE");
-    } else if (command == CMD_AP_DISENGAGE) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: AP DISENGAGE");
-    } else if (command == CMD_HDG_MODE_ON) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: HDG ON");
-    } else if (command == CMD_HDG_MODE_OFF) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: HDG OFF");
-    } else if (command == CMD_ALT_MODE_ON) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT ON");
-    } else if (command == CMD_ALT_MODE_OFF) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT OFF");
-    } else if (command == CMD_VS_MODE_ON) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: VS ON");
-    } else if (command == CMD_VS_MODE_OFF) {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: VS OFF");
-    } else {
-        snprintf(cmd_text, sizeof(cmd_text), "CMD: UNKNOWN");
-    }
-
-    // Format command code
-    snprintf(code_text, sizeof(code_text), "Code: 0x%02X", command);
-
-    // Update display
-    SSD1306_Clear();
-    SSD1306_SetCursor(0, 0);
-    SSD1306_Puts("UART Monitor");
-    SSD1306_SetCursor(0, 1);
-    SSD1306_Puts(cmd_text);
-    SSD1306_SetCursor(0, 2);
-    SSD1306_Puts(code_text);
-    SSD1306_UpdateScreen();
+    // Function kept for compatibility but no longer updates display
+    // Display is now managed by Display_UpdateAPStatus which shows encoder mode
+    (void)command;  // Suppress unused parameter warning
 }
 
 /**
   * @brief Update OLED display with autopilot status (fixed-position layout)
   * @param status: AP status bitfield
   *
-  * Display behavior:
-  * - AP disengaged: Display is cleared (blank)
-  * - AP engaged: Shows "AP" on line 0, mode indicators on line 1 at fixed positions
+  * Display layout (always shown):
+  * Line 0: "AP:ON " or "AP:OFF" (engagement status)
+  * Line 1: "HDG|ALT|VS " (mode indicators, active modes shown, inactive as "---")
+  * Line 2: (empty)
+  * Line 3: "        ENC:HDG" (right-aligned encoder mode)
   *
-  * Layout when AP engaged:
-  * Line 0: "AP"
-  * Line 1: "HDG|ALT|VS " (each mode at fixed position, shows "---" when inactive)
+  * Mode indicators show active state regardless of AP engagement:
+  * - Active mode: "HDG", "ALT", or "VS "
+  * - Inactive mode: "---"
   */
 void Display_UpdateAPStatus(uint8_t status)
 {
-    // Check if AP is engaged
-    if (!(status & AP_STATUS_ENGAGED)) {
-        // AP disengaged - clear display
-        SSD1306_Clear();
-        SSD1306_UpdateScreen();
-        return;
-    }
-    
-    // AP engaged - show status with fixed-position mode indicators
     SSD1306_Clear();
     
-    // Line 0: "AP" indicator
+    // Line 0: "AP" indicator - show engagement status
     SSD1306_SetCursor(0, 0);
-    SSD1306_Puts("AP");
+    if (status & AP_STATUS_ENGAGED) {
+        SSD1306_Puts("AP:ON ");
+    } else {
+        SSD1306_Puts("AP:OFF");
+    }
     
-    // Line 1: Mode indicators at fixed positions
+    // Line 1: Mode indicators at fixed positions (always shown)
     SSD1306_SetCursor(0, 1);
     
     // HDG indicator (positions 0-2)
@@ -350,6 +296,13 @@ void Display_UpdateAPStatus(uint8_t status)
     
     // VS indicator (positions 8-10)
     SSD1306_Puts((status & AP_STATUS_VS_ACTIVE) ? "VS " : "-- ");
+    
+    // Line 3: Encoder mode (always shown, bottom right)
+    // Display is 128px wide, 6px per char = ~21 chars
+    // "ENC:HDG" = 7 chars, so start at position 14 to right-align
+    SSD1306_SetCursor(84, 3);  // 84px = 14 chars * 6px
+    SSD1306_Puts("ENC:");
+    SSD1306_Puts(GetModeName(rotary_encoder.mode));
     
     SSD1306_UpdateScreen();
 }
@@ -392,12 +345,9 @@ int main(void)
   /* USER CODE BEGIN 2 */
   // Initialize SSD1306 OLED Display
   SSD1306_Init(&hi2c1);
-  SSD1306_Clear();
-  SSD1306_SetCursor(0, 0);
-  SSD1306_Puts("UART Monitor");
-  SSD1306_SetCursor(0, 1);
-  SSD1306_Puts("Ready...");
-  SSD1306_UpdateScreen();
+  
+  // Show initial display with encoder mode
+  Display_UpdateAPStatus(ap_status);
 
   // Start DMA reception for 3-byte command frames from PC
   HAL_UART_Receive_DMA(&huart2, uart_rx_buffer, 3);
@@ -782,15 +732,11 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart)
         {
           // Command 0x10: Turn LED ON
           HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
-          // Update OLED display with received command
-          Display_UpdateCommand(command);
         }
         else if (command == 0x11)
         {
           // Command 0x11: Turn LED OFF
           HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
-          // Update OLED display with received command
-          Display_UpdateCommand(command);
         }
         else if (command == CMD_AP_ENGAGE)
         {
