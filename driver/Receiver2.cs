@@ -29,14 +29,11 @@ namespace SimpleUartReceiver
         private const byte CMD_VS_RESET = 0x30;
         private const byte CMD_VS_SET = 0x31;
 
-        // Button control (0x40-0x4F range)
-        private const byte CMD_BTN_AP_PRESS = 0x40;
-        private const byte CMD_BTN_HDG_PRESS = 0x41;
-        private const byte CMD_BTN_VS_PRESS = 0x42;
-        private const byte CMD_BTN_ALT_PRESS = 0x43;
-
-        // Encoder control (0x50-0x5F range)
-        private const byte CMD_ENC_MODE = 0x51;
+        // Button control (0x50-0x5F range)
+        private const byte CMD_BTN_AP_TOGGLE = 0x50;
+        private const byte CMD_BTN_HDG_TOGGLE = 0x51;
+        private const byte CMD_BTN_VS_TOGGLE = 0x52;
+        private const byte CMD_BTN_ALT_TOGGLE = 0x53;
 
         private const int FRAME_SIZE = 4;
 
@@ -361,38 +358,24 @@ namespace SimpleUartReceiver
                     break;
 
                 // ===== BUTTON CONTROL =====
-                case CMD_BTN_AP_PRESS:
-                    // AP button pressed (operand always 0x00)
-                    Console.WriteLine($"[{timestamp}] BTN:AP_PRESS");
+                case CMD_BTN_AP_TOGGLE:
+                    // AP button toggle (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:AP_TOGGLE");
                     break;
 
-                case CMD_BTN_HDG_PRESS:
-                    // HDG button pressed (operand always 0x00)
-                    Console.WriteLine($"[{timestamp}] BTN:HDG_PRESS");
+                case CMD_BTN_HDG_TOGGLE:
+                    // HDG button toggle (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:HDG_TOGGLE");
                     break;
 
-                case CMD_BTN_VS_PRESS:
-                    // VS button pressed (operand always 0x00)
-                    Console.WriteLine($"[{timestamp}] BTN:VS_PRESS");
+                case CMD_BTN_VS_TOGGLE:
+                    // VS button toggle (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:VS_TOGGLE");
                     break;
 
-                case CMD_BTN_ALT_PRESS:
-                    // ALT button pressed (operand always 0x00)
-                    Console.WriteLine($"[{timestamp}] BTN:ALT_PRESS");
-                    break;
-
-                // ===== ENCODER CONTROL =====
-                case CMD_ENC_MODE:
-                    // ENC:MODE indicates rotary encoder mode change
-                    // Operand values: 0x00=HDG, 0x01=ALT, 0x02=VS
-                    string modeName = operand switch
-                    {
-                        0x00 => "HDG (Heading)",
-                        0x01 => "ALT (Altitude)",
-                        0x02 => "VS (Vertical Speed)",
-                        _ => $"UNKNOWN (0x{operand:X2})"
-                    };
-                    Console.WriteLine($"[{timestamp}] ENC:MODE changed to {modeName}");
+                case CMD_BTN_ALT_TOGGLE:
+                    // ALT button toggle (operand always 0x00)
+                    Console.WriteLine($"[{timestamp}] BTN:ALT_TOGGLE");
                     break;
 
                 default:

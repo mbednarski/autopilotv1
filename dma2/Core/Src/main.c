@@ -82,6 +82,7 @@ typedef struct {
     // Runtime state
     // -------------
     uint32_t last_press_time;     // Timestamp of last press (for debouncing)
+    uint8_t pressed;             // Current pressed state (for edge detection)
 
     // DMA buffer
     // ----------
@@ -90,11 +91,10 @@ typedef struct {
 } Button_t;
 
 #define PROTO_START         0xAA
-#define CMD_BTN_HDG_PRESS   0x40
-#define CMD_BTN_VS_PRESS    0x41
-#define CMD_BTN_APPR_PRESS  0x42
-#define CMD_BTN_ALT_PRESS   0x43
-#define CMD_ENC_MODE        0x51
+#define CMD_BTN_AP_TOGGLE   0x50
+#define CMD_BTN_HDG_TOGGLE  0x51
+#define CMD_BTN_VS_TOGGLE   0x52
+#define CMD_BTN_ALT_TOGGLE  0x53
 
 // Encoder mode-specific commands
 #define CMD_HDG_SET         0x11
@@ -107,11 +107,13 @@ typedef struct {
 #define ENC_MODE_VS         0x02
 
 #define COUNT_BUTTONS 4
+#define BUTTON_DEBOUNCE_MS 200   // Button debounce time (ms)
+
 static Button_t standalone_buttons[COUNT_BUTTONS] = {
-    {BTN_0_Pin,  BTN_0_GPIO_Port, CMD_BTN_HDG_PRESS,  0, {0}},  // AP button (PB1)
-    {BTN_1_Pin,  BTN_1_GPIO_Port, CMD_BTN_VS_PRESS, 0, {0}},  // HDG button (PB2)
-    {BTN_2_Pin,  BTN_2_GPIO_Port, CMD_BTN_APPR_PRESS,  0, {0}},  // VS button (PB3)
-    {BTN_3_Pin,  BTN_3_GPIO_Port, CMD_BTN_ALT_PRESS, 0, {0}}   // ALT button (PB4) - TODO: configure in CubeMX as BTN_ALT
+    {BTN_0_Pin,  BTN_0_GPIO_Port, CMD_BTN_AP_TOGGLE,  0, 0, {0}},  // AP button (PC0)
+    {BTN_1_Pin,  BTN_1_GPIO_Port, CMD_BTN_HDG_TOGGLE, 0, 0, {0}},  // HDG button (PC1)
+    {BTN_2_Pin,  BTN_2_GPIO_Port, CMD_BTN_VS_TOGGLE,  0, 0, {0}},  // VS button (PC2)
+    {BTN_3_Pin,  BTN_3_GPIO_Port, CMD_BTN_ALT_TOGGLE, 0, 0, {0}}   // ALT button (PC3)
 };
 
 // Rotary Encoder Structure
@@ -200,10 +202,7 @@ void CycleEncoderMode(RotaryEncoder_t* enc)
     // Cycle through modes: HDG -> ALT -> VS -> HDG
     enc->mode = (enc->mode + 1) % 3;
 
-    // Send mode change command
-    SendEncoderCommand(enc, CMD_ENC_MODE, enc->mode);
-
-    // Update OLED display
+    // Update OLED display (no command sent as per user instruction)
     char mode_text[20];
     snprintf(mode_text, sizeof(mode_text), "Mode: %s", GetModeName(enc->mode));
 
@@ -239,6 +238,14 @@ void Display_UpdateCommand(uint8_t command)
         snprintf(cmd_text, sizeof(cmd_text), "CMD: LED ON");
     } else if (command == 0x11) {
         snprintf(cmd_text, sizeof(cmd_text), "CMD: LED OFF");
+    } else if (command == 0x50) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: AP TOGGLE");
+    } else if (command == 0x51) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: HDG TOGGLE");
+    } else if (command == 0x52) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: VS TOGGLE");
+    } else if (command == 0x53) {
+        snprintf(cmd_text, sizeof(cmd_text), "CMD: ALT TOGGLE");
     } else {
         snprintf(cmd_text, sizeof(cmd_text), "CMD: UNKNOWN");
     }
@@ -323,11 +330,23 @@ int main(void)
 
 	  for(int i =0; i< COUNT_BUTTONS; i++)
 	  {
-		  GPIO_PinState state = HAL_GPIO_ReadPin(standalone_buttons[i].port, standalone_buttons[i].pin);
-		  if(state == GPIO_PIN_RESET)
-		  {
-			  SendButtonCommand(&standalone_buttons[i], standalone_buttons[i].cmd_press, 0x00);
-		  }
+	   GPIO_PinState current_state = HAL_GPIO_ReadPin(standalone_buttons[i].port, standalone_buttons[i].pin);
+	   uint8_t is_pressed = (current_state == GPIO_PIN_RESET);
+
+	   // Detect falling edge (button press) with debouncing
+	   if (is_pressed && !standalone_buttons[i].pressed)
+	   {
+	    uint32_t current_time = HAL_GetTick();
+	    // Debounce: only process if enough time has passed since last press
+	    if ((current_time - standalone_buttons[i].last_press_time) > BUTTON_DEBOUNCE_MS)
+	    {
+	  	  SendButtonCommand(&standalone_buttons[i], standalone_buttons[i].cmd_press, 0x00);
+	  	  standalone_buttons[i].last_press_time = current_time;
+	    }
+	   }
+
+	   // Update pressed state for edge detection
+	   standalone_buttons[i].pressed = is_pressed;
 	  }
 
 	  // --- Rotary Encoder Handling ---
