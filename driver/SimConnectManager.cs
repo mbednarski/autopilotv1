@@ -13,6 +13,10 @@ public class SimConnectManager : IDisposable
     private readonly object _lock = new();
     private int _currentHeading;
     private bool _headingValid;
+    private int _currentAltitude;
+    private bool _altitudeValid;
+    private int _currentVerticalSpeed;
+    private bool _verticalSpeedValid;
 
     // Autopilot status tracking
     private bool _apMasterEngaged;
@@ -34,7 +38,9 @@ public class SimConnectManager : IDisposable
 
     private enum EVENTS
     {
-        SetHeading
+        SetHeading,
+        SetAltitude,
+        SetVerticalSpeed
     }
 
     private enum GROUPS
@@ -47,6 +53,8 @@ public class SimConnectManager : IDisposable
     private struct AutopilotData
     {
         public double HeadingBug;         // AUTOPILOT HEADING LOCK DIR
+        public double AltitudeBug;        // AUTOPILOT ALTITUDE LOCK VAR (feet)
+        public double VerticalSpeedBug;   // AUTOPILOT VERTICAL HOLD VAR (feet per minute)
         public int ApMaster;              // AUTOPILOT MASTER (1 = engaged, 0 = disengaged)
         public int ApHeadingLock;         // AUTOPILOT HEADING LOCK (1 = active, 0 = inactive)
         public int ApAltitudeLock;        // AUTOPILOT ALTITUDE LOCK (1 = active, 0 = inactive)
@@ -61,6 +69,16 @@ public class SimConnectManager : IDisposable
     public int CurrentHeading
     {
         get { lock (_lock) return _currentHeading; }
+    }
+
+    public int CurrentAltitude
+    {
+        get { lock (_lock) return _currentAltitude; }
+    }
+
+    public int CurrentVerticalSpeed
+    {
+        get { lock (_lock) return _currentVerticalSpeed; }
     }
 
     public bool IsAutopilotEngaged
@@ -120,6 +138,24 @@ public class SimConnectManager : IDisposable
 
                 _simConnect.AddToDataDefinition(
                     DEFINITIONS.AutopilotData,
+                    "AUTOPILOT ALTITUDE LOCK VAR",
+                    "feet",
+                    SIMCONNECT_DATATYPE.FLOAT64,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+
+                _simConnect.AddToDataDefinition(
+                    DEFINITIONS.AutopilotData,
+                    "AUTOPILOT VERTICAL HOLD VAR",
+                    "feet per minute",
+                    SIMCONNECT_DATATYPE.FLOAT64,
+                    0.0f,
+                    SimConnect.SIMCONNECT_UNUSED
+                );
+
+                _simConnect.AddToDataDefinition(
+                    DEFINITIONS.AutopilotData,
                     "AUTOPILOT MASTER",
                     "bool",
                     SIMCONNECT_DATATYPE.INT32,
@@ -156,11 +192,15 @@ public class SimConnectManager : IDisposable
 
                 _simConnect.RegisterDataDefineStruct<AutopilotData>(DEFINITIONS.AutopilotData);
 
-                // Map event for setting heading
+                // Map events for setting autopilot bugs
                 _simConnect.MapClientEventToSimEvent(EVENTS.SetHeading, "HEADING_BUG_SET");
+                _simConnect.MapClientEventToSimEvent(EVENTS.SetAltitude, "AP_ALT_VAR_SET_ENGLISH");
+                _simConnect.MapClientEventToSimEvent(EVENTS.SetVerticalSpeed, "AP_VS_VAR_SET_ENGLISH");
 
-                // Add event to notification group
+                // Add events to notification group
                 _simConnect.AddClientEventToNotificationGroup(GROUPS.Default, EVENTS.SetHeading, false);
+                _simConnect.AddClientEventToNotificationGroup(GROUPS.Default, EVENTS.SetAltitude, false);
+                _simConnect.AddClientEventToNotificationGroup(GROUPS.Default, EVENTS.SetVerticalSpeed, false);
                 _simConnect.SetNotificationGroupPriority(GROUPS.Default, SimConnect.SIMCONNECT_GROUP_PRIORITY_HIGHEST);
 
                 // Request autopilot data updates
@@ -255,6 +295,111 @@ public class SimConnectManager : IDisposable
         }
     }
 
+    /// <summary>
+    /// Adjust altitude bug by delta feet (typically 100ft increments)
+    /// </summary>
+    /// <param name="delta">Feet to add/subtract</param>
+    /// <returns>True if command was sent successfully</returns>
+    public bool AdjustAltitude(int delta)
+    {
+        lock (_lock)
+        {
+            if (!_isConnected)
+            {
+                Console.WriteLine("[SimConnect] Not connected - discarding ALT command");
+                return false;
+            }
+
+            if (!_altitudeValid)
+            {
+                Console.WriteLine("[SimConnect] Current altitude unknown - cannot apply delta");
+                return false;
+            }
+
+            try
+            {
+                // Calculate new altitude (clamp to reasonable values: 0 to 50,000 feet)
+                int newAltitude = _currentAltitude + delta * 100;
+                if (newAltitude < 0) newAltitude = 0;
+                if (newAltitude > 50000) newAltitude = 50000;
+
+                Console.WriteLine($"[SimConnect] ALT: {_currentAltitude}ft + {delta * 100:+#;-#;0}ft = {newAltitude}ft");
+
+                // Send altitude bug set event
+                _simConnect?.TransmitClientEvent(
+                    SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    EVENTS.SetAltitude,
+                    (uint)newAltitude,
+                    GROUPS.Default,
+                    SIMCONNECT_EVENT_FLAG.DEFAULT
+                );
+
+                // Update our cached value
+                _currentAltitude = newAltitude;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SimConnect] Failed to adjust altitude: {ex.Message}");
+                return false;
+            }
+        }
+    }
+
+    /// <summary>
+    /// Adjust vertical speed bug by delta (typically 100fpm increments)
+    /// </summary>
+    /// <param name="delta">FPM to add/subtract</param>
+    /// <returns>True if command was sent successfully</returns>
+    public bool AdjustVerticalSpeed(int delta)
+    {
+        lock (_lock)
+        {
+            if (!_isConnected)
+            {
+                Console.WriteLine("[SimConnect] Not connected - discarding VS command");
+                return false;
+            }
+
+            if (!_verticalSpeedValid)
+            {
+                Console.WriteLine("[SimConnect] Current VS unknown - cannot apply delta");
+                return false;
+            }
+
+            try
+            {
+                // Calculate new VS (clamp to reasonable values: -6000 to +6000 fpm)
+                int newVS = _currentVerticalSpeed + delta * 100;
+                if (newVS < -6000) newVS = -6000;
+                if (newVS > 6000) newVS = 6000;
+
+                Console.WriteLine($"[SimConnect] VS: {_currentVerticalSpeed}fpm + {delta * 100:+#;-#;0}fpm = {newVS}fpm");
+
+                // Send VS bug set event (needs to be converted to signed value)
+                // For negative values, use two's complement for 32-bit integer
+                uint vsValue = (uint)newVS;
+
+                _simConnect?.TransmitClientEvent(
+                    SimConnect.SIMCONNECT_OBJECT_ID_USER,
+                    EVENTS.SetVerticalSpeed,
+                    vsValue,
+                    GROUPS.Default,
+                    SIMCONNECT_EVENT_FLAG.DEFAULT
+                );
+
+                // Update our cached value
+                _currentVerticalSpeed = newVS;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                Console.WriteLine($"[SimConnect] Failed to adjust vertical speed: {ex.Message}");
+                return false;
+            }
+        }
+    }
+
     // Event handlers
     private void OnRecvOpen(SimConnect sender, SIMCONNECT_RECV_OPEN data)
     {
@@ -271,6 +416,8 @@ public class SimConnectManager : IDisposable
         {
             _isConnected = false;
             _headingValid = false;
+            _altitudeValid = false;
+            _verticalSpeedValid = false;
             _apStatusValid = false;
             Console.WriteLine("[SimConnect] MSFS closed - disconnected");
         }
@@ -292,6 +439,12 @@ public class SimConnectManager : IDisposable
                 _currentHeading = (int)Math.Round(apData.HeadingBug);
                 _headingValid = true;
 
+                _currentAltitude = (int)Math.Round(apData.AltitudeBug);
+                _altitudeValid = true;
+
+                _currentVerticalSpeed = (int)Math.Round(apData.VerticalSpeedBug);
+                _verticalSpeedValid = true;
+
                 // Update autopilot status flags
                 _apMasterEngaged = apData.ApMaster != 0;
                 _apHeadingActive = apData.ApHeadingLock != 0;
@@ -312,6 +465,8 @@ public class SimConnectManager : IDisposable
                 _simConnect = null;
                 _isConnected = false;
                 _headingValid = false;
+                _altitudeValid = false;
+                _verticalSpeedValid = false;
                 _apStatusValid = false;
                 Console.WriteLine("[SimConnect] Disconnected");
             }

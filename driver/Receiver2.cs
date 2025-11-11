@@ -532,6 +532,9 @@ namespace SimpleUartReceiver
                     // ALT:SET operand is a SIGNED 8-bit integer
                     sbyte altDelta = (sbyte)operand;
                     Console.WriteLine($"[{timestamp}] ALT:SET delta={altDelta:+#;-#;0}");
+
+                    // Send to MSFS2024 via SimConnect
+                    _simConnect?.AdjustAltitude(altDelta);
                     break;
 
                 // ===== VERTICAL SPEED CONTROL =====
@@ -544,6 +547,9 @@ namespace SimpleUartReceiver
                     // VS:SET operand is a SIGNED 8-bit integer
                     sbyte vsDelta = (sbyte)operand;
                     Console.WriteLine($"[{timestamp}] VS:SET delta={vsDelta:+#;-#;0}");
+
+                    // Send to MSFS2024 via SimConnect
+                    _simConnect?.AdjustVerticalSpeed(vsDelta);
                     break;
 
                 // ===== BUTTON CONTROL =====

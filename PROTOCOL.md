@@ -175,73 +175,81 @@ Turn off the onboard LED (LD2).
 Engage the autopilot system.
 
 - **Command byte**: `0x60`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x60, 0xE8]`
 - **Checksum**: `0x88 ^ 0x60 = 0xE8`
 - **Effect**: Sets AP_STATUS_ENGAGED bit, updates OLED display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT MASTER` and sends this command when AP engages
 
 #### AP:DISENGAGE (0x61)
 Disengage the autopilot system (clears all active modes).
 
 - **Command byte**: `0x61`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x61, 0xE9]`
 - **Checksum**: `0x88 ^ 0x61 = 0xE9`
 - **Effect**: Clears all AP status bits, blanks OLED display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT MASTER` and sends this command when AP disengages
 
 #### HDG:MODE_ON (0x62)
 Activate heading mode.
 
 - **Command byte**: `0x62`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x62, 0xEA]`
 - **Checksum**: `0x88 ^ 0x62 = 0xEA`
 - **Effect**: Sets AP_STATUS_HDG_ACTIVE bit, updates display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT HEADING LOCK` and sends this command when HDG mode activates
 
 #### HDG:MODE_OFF (0x63)
 Deactivate heading mode.
 
 - **Command byte**: `0x63`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x63, 0xEB]`
 - **Checksum**: `0x88 ^ 0x63 = 0xEB`
 - **Effect**: Clears AP_STATUS_HDG_ACTIVE bit, updates display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT HEADING LOCK` and sends this command when HDG mode deactivates
 
 #### ALT:MODE_ON (0x64)
 Activate altitude mode.
 
 - **Command byte**: `0x64`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x64, 0xEC]`
 - **Checksum**: `0x88 ^ 0x64 = 0xEC`
 - **Effect**: Sets AP_STATUS_ALT_ACTIVE bit, updates display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT ALTITUDE LOCK` and sends this command when ALT mode activates
 
 #### ALT:MODE_OFF (0x65)
 Deactivate altitude mode.
 
 - **Command byte**: `0x65`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x65, 0xED]`
 - **Checksum**: `0x88 ^ 0x65 = 0xED`
 - **Effect**: Clears AP_STATUS_ALT_ACTIVE bit, updates display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT ALTITUDE LOCK` and sends this command when ALT mode deactivates
 
 #### VS:MODE_ON (0x66)
 Activate vertical speed mode.
 
 - **Command byte**: `0x66`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x66, 0xEE]`
 - **Checksum**: `0x88 ^ 0x66 = 0xEE`
 - **Effect**: Sets AP_STATUS_VS_ACTIVE bit, updates display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT VERTICAL HOLD` and sends this command when VS mode activates
 
 #### VS:MODE_OFF (0x67)
 Deactivate vertical speed mode.
 
 - **Command byte**: `0x67`
-- **Status**: ✅ Implemented (dma2/Core/Src/main.c)
+- **Status**: ✅ Implemented (STM32: dma2/Core/Src/main.c, PC: driver/Receiver2.cs, SimConnect: driver/SimConnectManager.cs)
 - **Example**: `[0x88, 0x67, 0xEF]`
 - **Checksum**: `0x88 ^ 0x67 = 0xEF`
 - **Effect**: Clears AP_STATUS_VS_ACTIVE bit, updates display
+- **Auto-sync**: PC monitors MSFS `AUTOPILOT VERTICAL HOLD` and sends this command when VS mode deactivates
 
 ## Implementation Notes
 
@@ -263,17 +271,43 @@ Deactivate vertical speed mode.
 ### PC/C# Implementation (driver/Receiver2.cs)
 
 **Receive (STM32 → PC):**
-- Uses async reads: `SerialPort.BaseStream.ReadAsync()` (lines 134-135)
-- Circular buffer approach with dynamic `List<byte>` (lines 126-164)
-- Frame synchronization: scans for START byte `0xAA` (lines 180-193)
-- Checksum validation before processing (lines 212-223)
-- Handles signed operands for SET commands using `sbyte` cast (lines 332, 344, 356)
+- Uses async reads: `SerialPort.BaseStream.ReadAsync()`
+- Circular buffer approach with dynamic `List<byte>`
+- Frame synchronization: scans for START byte `0xAA`
+- Checksum validation before processing
+- Handles signed operands for SET commands using `sbyte` cast
 - Statistics tracking: valid frames, checksum errors, unknown commands
 
 **Transmit (PC → STM32):**
 - Uses `SerialPort.Write()` for synchronous transmission
 - 3-byte frame format with checksum: `START ^ COMMAND`
-- Console input handler for LED commands (lines 266-307)
+- Console input handler for manual LED and AP control commands
+
+**MSFS Status Monitoring:**
+- `ProcessSimConnectMessagesAsync()` runs every 10ms polling SimConnect
+- `CheckAndSendStatusUpdates()` monitors autopilot status changes
+- Tracks previous state for change detection (AP master, HDG, ALT, VS modes)
+- Automatically sends status update commands to STM32 when MSFS state changes
+- Bidirectional sync: MSFS → PC → STM32 for real-time display updates
+
+### SimConnect Implementation (driver/SimConnectManager.cs)
+
+**Data Monitoring:**
+- Polls MSFS autopilot data every SECOND via SimConnect
+- Monitors 5 key autopilot variables:
+  - `AUTOPILOT HEADING LOCK DIR` (heading bug value)
+  - `AUTOPILOT MASTER` (AP engaged/disengaged)
+  - `AUTOPILOT HEADING LOCK` (HDG mode active)
+  - `AUTOPILOT ALTITUDE LOCK` (ALT mode active)
+  - `AUTOPILOT VERTICAL HOLD` (VS mode active)
+
+**Data Exposure:**
+- Thread-safe properties expose current autopilot state
+- `IsConnected`, `IsAutopilotStatusValid` for connection/data validity checks
+- `IsAutopilotEngaged`, `IsHeadingModeActive`, `IsAltitudeModeActive`, `IsVerticalSpeedModeActive`
+
+**Control Functions:**
+- `AdjustHeading(int delta)` - Sends heading bug changes to MSFS via `HEADING_BUG_SET` event
 
 ### Error Handling
 
@@ -292,30 +326,46 @@ Deactivate vertical speed mode.
 ## Known Issues
 
 ### Implementation Status
-Most commands are currently marked as "⚠️ Planned" and need implementation in STM32 firmware. Only the encoder delta commands (HDG:DELTA, ALT:DELTA, VS:DELTA) are currently implemented.
+**Fully Implemented:**
+- Encoder delta commands: HDG:DELTA (0x11), ALT:DELTA (0x21), VS:DELTA (0x31) ✅
+- LED control: LED:ON (0x10), LED:OFF (0x11) ✅
+- Autopilot status sync: AP master + mode status (0x60-0x67) ✅
+- MSFS → STM32 real-time status synchronization ✅
+
+**Pending Implementation:**
+- Button toggle commands from STM32: BTN:AP_TOGGLE (0x50), BTN:HDG_TOGGLE (0x51), BTN:VS_TOGGLE (0x52), BTN:ALT_TOGGLE (0x53)
+- Barometric pressure encoder: BARO:DELTA (0x41)
 
 ## Future Extensions
 
-### Planned Features
+### Implemented Features
 1. **Rotary Encoder Support**: ✅ Implemented
    - Uses TIM3 Timer Encoder Mode (PA6/PA7) with hardware quadrature decoding
    - Encoder rotation sends HDG:DELTA (0x11), ALT:DELTA (0x21), or VS:DELTA (0x31) based on current mode
    - TI12 mode (4x resolution) with detent filtering - only full mechanical clicks transmitted
    - 50ms throttling and 200ms button debouncing
 2. **Debouncing**: ✅ Implemented for encoder button (200ms debounce)
-3. **Button Toggle Commands**: BTN:AP_TOGGLE (0x50), BTN:HDG_TOGGLE (0x51), BTN:VS_TOGGLE (0x52), BTN:ALT_TOGGLE (0x53)
-4. **BARO:DELTA Command**: Barometric pressure adjustment via encoder (0x41)
-5. **Status Feedback**: PC → STM32 acknowledgment frames
-6. **Heartbeat/Keepalive**: Detect connection loss
+3. **Autopilot Status Sync**: ✅ Implemented
+   - PC monitors MSFS autopilot state via SimConnect
+   - Automatic status updates sent to STM32 (AP master, HDG, ALT, VS modes)
+   - Real-time bidirectional synchronization: MSFS ↔ PC ↔ STM32
+   - STM32 OLED display reflects current MSFS autopilot state
+
+### Planned Features
+1. **Button Toggle Commands**: BTN:AP_TOGGLE (0x50), BTN:HDG_TOGGLE (0x51), BTN:VS_TOGGLE (0x52), BTN:ALT_TOGGLE (0x53)
+2. **BARO:DELTA Command**: Barometric pressure adjustment via encoder (0x41)
+3. **Heartbeat/Keepalive**: Detect connection loss between PC and STM32
+4. **Additional AP Modes**: NAV, APR, YD, Speed/AT modes for advanced aircraft
 
 ### Reserved Command IDs
 - `0x00-0x0F`: System commands (ping, heartbeat, status, etc.)
-- `0x10-0x1F`: Heading control (DELTA)
-- `0x20-0x2F`: Altitude control (DELTA)
-- `0x30-0x3F`: Vertical speed control (DELTA)
-- `0x40-0x4F`: Barometric pressure control (DELTA)
-- `0x50-0x5F`: Button toggle states (AP, HDG, VS, ALT)
-- `0x60-0xFF`: Available for future use
+- `0x10-0x1F`: LED control and heading control (LED ON/OFF, HDG:DELTA)
+- `0x20-0x2F`: Altitude control (ALT:DELTA)
+- `0x30-0x3F`: Vertical speed control (VS:DELTA)
+- `0x40-0x4F`: Barometric pressure control (BARO:DELTA)
+- `0x50-0x5F`: Button toggle states (AP, HDG, VS, ALT toggle buttons)
+- `0x60-0x6F`: Autopilot status control (AP engage/disengage, mode ON/OFF)
+- `0x70-0xFF`: Available for future use (NAV, APR, YD, Speed/AT modes, etc.)
 
 ### Multi-byte Operands
 If a command requires >1 byte of data, consider:
