@@ -7,20 +7,39 @@
     <Nullable>enable</Nullable>
   </PropertyGroup>
 
-  
+  <!--
+    MSFS SDK Path Configuration:
+
+    Option 1: Set the MSFS_SDK_PATH environment variable to your SDK installation directory
+              Example: MSFS_SDK_PATH=D:\MSFS 2024 SDK
+
+    Option 2: Edit the MSFSSDKPath property below to point to your SDK installation
+
+    Option 3: Pass the path via command line when building:
+              dotnet build /p:MSFSSDKPath="D:\MSFS 2024 SDK"
+
+    Default fallback: Assumes SDK is in a sibling directory "../MSFS 2024 SDK"
+  -->
+  <PropertyGroup>
+    <!-- Try environment variable first, then use default relative path -->
+    <MSFSSDKPath Condition="'$(MSFSSDKPath)'=='' AND '$(MSFS_SDK_PATH)'!=''">$(MSFS_SDK_PATH)</MSFSSDKPath>
+    <MSFSSDKPath Condition="'$(MSFSSDKPath)'==''">$(SolutionDir)..\MSFS 2024 SDK</MSFSSDKPath>
+    <SimConnectDllPath>$(MSFSSDKPath)\SimConnect SDK\lib\managed\Microsoft.FlightSimulator.SimConnect.dll</SimConnectDllPath>
+  </PropertyGroup>
+
   <ItemGroup>
     <PackageReference Include="System.IO.Ports" Version="9.0.10" />
   </ItemGroup>
 
-    <ItemGroup>
+  <ItemGroup>
     <Reference Include="Microsoft.FlightSimulator.SimConnect">
-      <HintPath>D:\MSFS 2024 SDK\SimConnect SDK\lib\managed\Microsoft.FlightSimulator.SimConnect.dll</HintPath>
+      <HintPath>$(SimConnectDllPath)</HintPath>
       <Private>true</Private>
     </Reference>
   </ItemGroup>
 
-    <ItemGroup>
-    <None Include="D:\MSFS 2024 SDK\SimConnect SDK\lib\managed\Microsoft.FlightSimulator.SimConnect.dll">
+  <ItemGroup>
+    <None Include="$(SimConnectDllPath)">
       <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
     </None>
   </ItemGroup>

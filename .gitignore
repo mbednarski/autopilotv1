@@ -1,3 +1,27 @@
-.metadata
+# Eclipse workspace metadata
+.metadata/
+
+# Claude local settings
 .claude/settings.local.json
-.claude/settings.local.json
+
+# IDE and editor directories
+.vscode/
+.vs/
+.idea/
+
+# OS-specific files
+.DS_Store
+Thumbs.db
+
+# Editor temporary files
+*.swp
+*.swo
+*~
+.*.swp
+
+# Build artifacts (if any get generated in root)
+*.o
+*.exe
+*.elf
+*.bin
+*.hex

@@ -65,14 +65,36 @@ namespace SimpleUartReceiver
 
         static async Task Main(string[] args)
         {
+            // Parse command-line arguments for COM port
+            string comPort = "COM4";  // Default port
+
+            if (args.Length > 0)
+            {
+                comPort = args[0].ToUpper();
+
+                // Validate COM port format (basic check)
+                if (!comPort.StartsWith("COM"))
+                {
+                    Console.WriteLine($"Invalid COM port: {args[0]}");
+                    Console.WriteLine("Usage: driver.exe [COMx]");
+                    Console.WriteLine("Example: driver.exe COM4");
+                    Console.WriteLine($"Defaulting to {comPort = "COM4"}...\n");
+                }
+            }
+            else
+            {
+                Console.WriteLine($"No COM port specified, using default: {comPort}");
+                Console.WriteLine("Usage: driver.exe [COMx]\n");
+            }
+
             Console.WriteLine("=== UART Bidirectional Protocol ===");
             Console.WriteLine("RX: 4-byte frames (STM32 -> PC)");
             Console.WriteLine("TX: 3-byte frames (PC -> STM32)\n");
 
-            // Configure serial port (adjust COM port to match your system)
+            // Configure serial port
             _serialPort = new SerialPort
             {
-                PortName = "COM4",        // Change to your port (COM3, COM4, etc.)
+                PortName = comPort,
                 BaudRate = 115200,
                 DataBits = 8,
                 Parity = Parity.None,
