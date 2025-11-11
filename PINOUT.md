@@ -22,6 +22,110 @@ This document defines all pin connections and settings for the MSFS Autopilot Ha
 | **Ground** | GND | GND | GND | Common ground |
 | **Power** | +3.3V | +3.3V | VCC | 3.3V supply |
 
+### Pin Configuration Overview Diagram
+
+The following diagram visualizes how STM32 pins are organized by peripheral and function:
+
+```mermaid
+graph TB
+    subgraph STM32F091RC["STM32F091RC Nucleo Board"]
+        subgraph TIM["Timer Peripherals"]
+            TIM3[TIM3 Encoder Mode<br/>Quadrature Decoder]
+            TIM3_CH1[PA6 - TIM3_CH1<br/>Encoder A]
+            TIM3_CH2[PA7 - TIM3_CH2<br/>Encoder B]
+
+            TIM3 --> TIM3_CH1
+            TIM3 --> TIM3_CH2
+        end
+
+        subgraph I2C["I2C Peripherals"]
+            I2C1[I2C1 Master<br/>100-400 kHz]
+            I2C1_SCL[PB6 - I2C1_SCL<br/>OLED Clock]
+            I2C1_SDA[PB7 - I2C1_SDA<br/>OLED Data]
+
+            I2C1 --> I2C1_SCL
+            I2C1 --> I2C1_SDA
+        end
+
+        subgraph UART["UART Peripherals"]
+            USART2[USART2<br/>115200 baud<br/>DMA TX/RX]
+            USART2_TX[PA2 - USART2_TX<br/>To PC]
+            USART2_RX[PA3 - USART2_RX<br/>From PC]
+
+            USART2 --> USART2_TX
+            USART2 --> USART2_RX
+        end
+
+        subgraph GPIO_IN["GPIO Inputs"]
+            BTN_KNOB[BTN_KNOB<br/>Encoder Button<br/>EXTI + Pullup]
+            PC0[PC0 - BTN_0<br/>AP Toggle<br/>EXTI + Pullup<br/>Planned]
+            PC1[PC1 - BTN_1<br/>HDG Toggle<br/>EXTI + Pullup<br/>Planned]
+            PC2[PC2 - BTN_2<br/>ALT Toggle<br/>EXTI + Pullup<br/>Planned]
+            PC3[PC3 - BTN_3<br/>VS Toggle<br/>EXTI + Pullup<br/>Planned]
+
+            style PC0 stroke-dasharray: 5 5
+            style PC1 stroke-dasharray: 5 5
+            style PC2 stroke-dasharray: 5 5
+            style PC3 stroke-dasharray: 5 5
+        end
+
+        subgraph GPIO_OUT["GPIO Outputs"]
+            LED[PA5 - LD2<br/>Green LED<br/>Push-Pull]
+        end
+
+        subgraph DMA["DMA Channels"]
+            DMA1[DMA1 Controller]
+            DMA1_CH4[Channel 4<br/>USART2_TX]
+            DMA1_CH5[Channel 5<br/>USART2_RX]
+
+            DMA1 --> DMA1_CH4
+            DMA1 --> DMA1_CH5
+        end
+    end
+
+    subgraph External["External Connections"]
+        Encoder[Rotary Encoder<br/>Quadrature + Button]
+        OLED[SSD1306 OLED<br/>128x64 I2C]
+        PC[PC Serial Port<br/>Virtual COM]
+        Buttons[Toggle Buttons<br/>NO Momentary<br/>Planned]
+
+        style Buttons stroke-dasharray: 5 5
+    end
+
+    TIM3_CH1 -.-> |A/CLK| Encoder
+    TIM3_CH2 -.-> |B/DT| Encoder
+    BTN_KNOB -.-> |SW| Encoder
+
+    I2C1_SCL -.-> |SCL| OLED
+    I2C1_SDA -.-> |SDA| OLED
+
+    USART2_TX -.-> |TX→RX| PC
+    USART2_RX -.-> |RX←TX| PC
+
+    PC0 -.-> Buttons
+    PC1 -.-> Buttons
+    PC2 -.-> Buttons
+    PC3 -.-> Buttons
+
+    DMA1_CH4 -.-> USART2_TX
+    DMA1_CH5 -.-> USART2_RX
+
+    style STM32F091RC fill:#e3f2fd
+    style External fill:#f3e5f5
+    style TIM fill:#fff9c4
+    style I2C fill:#c8e6c9
+    style UART fill:#ffccbc
+    style GPIO_IN fill:#d1c4e9
+    style GPIO_OUT fill:#ffab91
+    style DMA fill:#b2dfdb
+```
+
+**Legend:**
+- **Solid boxes**: Implemented and active
+- **Dashed boxes**: Planned but not yet implemented
+- **Solid arrows**: Internal connections
+- **Dotted arrows**: External wiring connections
+
 ---
 
 ## Detailed Pin Configuration

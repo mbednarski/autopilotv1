@@ -12,6 +12,89 @@ This document provides comprehensive instructions for building and running both 
 - [Running the System](#running-the-system)
 - [Troubleshooting](#troubleshooting)
 
+## Build Process Workflow
+
+The following flowchart provides an overview of the complete build and deployment process for both components:
+
+```mermaid
+flowchart TD
+    Start([Start Build Process]) --> CheckPrereq{Prerequisites<br/>Installed?}
+
+    CheckPrereq -->|Missing| InstallPrereq[Install Required Software:<br/>- STM32CubeIDE 1.13+<br/>- .NET 9.0 SDK<br/>- MSFS 2024 + SDK]
+    InstallPrereq --> CheckPrereq
+
+    CheckPrereq -->|Yes| ParallelBuild{Choose<br/>Component}
+
+    %% STM32 Firmware Build Path
+    ParallelBuild -->|STM32 Firmware| STM32Import[Import Project in STM32CubeIDE<br/>File → Import → dma2/]
+    STM32Import --> STM32Config{Config<br/>Correct?}
+    STM32Config -->|No| STM32CubeMX[Open dma2.ioc in CubeMX<br/>Configure pins/peripherals<br/>Generate code]
+    STM32CubeMX --> STM32Config
+    STM32Config -->|Yes| STM32Clean[Clean Project]
+    STM32Clean --> STM32Build[Build Project<br/>Ctrl+B or hammer icon]
+
+    STM32Build --> STM32BuildSuccess{Build<br/>Successful?}
+    STM32BuildSuccess -->|No| STM32FixErrors[Fix Build Errors:<br/>- Check HAL drivers<br/>- Verify optimization settings<br/>- Check flash size]
+    STM32FixErrors --> STM32Build
+
+    STM32BuildSuccess -->|Yes| STM32Connect[Connect Nucleo Board<br/>USB Mini-B to PC]
+    STM32Connect --> STM32Flash[Flash Firmware<br/>Run ▶ or F11]
+    STM32Flash --> STM32FlashSuccess{Flash<br/>Success?}
+
+    STM32FlashSuccess -->|No| STM32FlashFix[Troubleshoot Flashing:<br/>- Update ST-LINK firmware<br/>- Check USB cable<br/>- Replug board]
+    STM32FlashFix --> STM32Flash
+
+    STM32FlashSuccess -->|Yes| STM32Verify[Verify Firmware Running:<br/>- Check PWR LED<br/>- Test encoder rotation<br/>- Monitor serial output]
+    STM32Verify --> STM32Done[STM32 Build Complete ✓]
+
+    %% C# Driver Build Path
+    ParallelBuild -->|C# Driver| CSSDKPath{MSFS SDK<br/>Path Known?}
+    CSSDKPath -->|No| CSLocateSDK[Locate MSFS SimConnect SDK:<br/>C:\MSFS SDK\SimConnect SDK\<br/>or D:\MSFS 2024 SDK\]
+    CSLocateSDK --> CSUpdateProj[Update driver.csproj<br/>Edit HintPath to SDK location]
+    CSUpdateProj --> CSSDKPath
+
+    CSSDKPath -->|Yes| CSRestore[Restore NuGet Packages<br/>dotnet restore]
+    CSRestore --> CSRestoreSuccess{Restore<br/>Success?}
+    CSRestoreSuccess -->|No| CSRestoreFix[Fix Restore Issues:<br/>- Check internet connection<br/>- Clear NuGet cache<br/>- Verify .NET SDK version]
+    CSRestoreFix --> CSRestore
+
+    CSRestoreSuccess -->|Yes| CSBuild[Build Project<br/>dotnet build]
+    CSBuild --> CSBuildSuccess{Build<br/>Success?}
+
+    CSBuildSuccess -->|No| CSFixErrors[Fix Build Errors:<br/>- Verify SDK path in .csproj<br/>- Check .NET version<br/>- Update NuGet packages]
+    CSFixErrors --> CSBuild
+
+    CSBuildSuccess -->|Yes| CSLocate[Locate Output:<br/>driver/bin/Debug/net9.0/driver.exe]
+    CSLocate --> CSDone[C# Build Complete ✓]
+
+    %% Final Integration
+    STM32Done --> Integration[Hardware Connection]
+    CSDone --> Integration
+
+    Integration --> ConnectHW[Connect Components:<br/>- Encoder to STM32 pins<br/>- OLED to I2C pins<br/>- STM32 USB to PC]
+    ConnectHW --> FindCOM[Identify COM Port:<br/>Device Manager → Ports]
+    FindCOM --> StartMSFS[Start MSFS 2024<br/>Load into flight]
+    StartMSFS --> RunDriver[Run C# Driver:<br/>dotnet run -- COM#]
+
+    RunDriver --> SystemTest{System<br/>Working?}
+
+    SystemTest -->|No| Troubleshoot[Troubleshoot Issues<br/>See Troubleshooting Section]
+    Troubleshoot --> SystemTest
+
+    SystemTest -->|Yes| Complete([System Ready! ✓<br/>Rotate encoder to test])
+
+    style Start fill:#e1f5ff
+    style Complete fill:#d4edda
+    style STM32Done fill:#d4edda
+    style CSDone fill:#d4edda
+    style STM32BuildSuccess fill:#fff3cd
+    style STM32FlashSuccess fill:#fff3cd
+    style CSBuildSuccess fill:#fff3cd
+    style CSRestoreSuccess fill:#fff3cd
+    style SystemTest fill:#fff3cd
+    style Troubleshoot fill:#f8d7da
+```
+
 ---
 
 ## Prerequisites
@@ -471,6 +554,110 @@ Listening for commands from STM32...
 ---
 
 ## Troubleshooting
+
+Use this decision tree to quickly identify and resolve common issues:
+
+```mermaid
+flowchart TD
+    Start([System Not Working]) --> Category{What's the<br/>problem?}
+
+    %% Build Issues Path
+    Category -->|Build Fails| BuildType{Which<br/>component?}
+
+    BuildType -->|STM32 Firmware| STM32BuildCheck{Error<br/>type?}
+    STM32BuildCheck -->|undefined reference| FixHAL[Check HAL drivers included<br/>Properties → Settings → Verify drivers]
+    STM32BuildCheck -->|Flash overflow| FixFlash[Enable optimization -O2<br/>Remove unused code<br/>Check flash size]
+    STM32BuildCheck -->|Other| STM32Clean[Clean Project<br/>Rebuild from scratch]
+    FixHAL --> TestBuild1[Rebuild Project]
+    FixFlash --> TestBuild1
+    STM32Clean --> TestBuild1
+    TestBuild1 --> BuildFixed1{Fixed?}
+    BuildFixed1 -->|Yes| Success1([Continue to Flash])
+    BuildFixed1 -->|No| CheckDocs1[Review STM32 build logs<br/>Check CubeIDE settings]
+
+    BuildType -->|C# Driver| CSBuildCheck{Error<br/>type?}
+    CSBuildCheck -->|SDK not found| FixSDKPath[Update driver.csproj<br/>Edit HintPath to correct SDK location<br/>Run dotnet build]
+    CSBuildCheck -->|.NET not found| InstallNET[Install .NET 9.0 SDK<br/>Restart terminal<br/>Verify: dotnet --version]
+    CSBuildCheck -->|Wrong .NET version| UpdateNET[Update to .NET 9.0 SDK<br/>Check dotnet --version]
+    FixSDKPath --> TestBuild2[dotnet build]
+    InstallNET --> TestBuild2
+    UpdateNET --> TestBuild2
+    TestBuild2 --> BuildFixed2{Fixed?}
+    BuildFixed2 -->|Yes| Success2([Continue to Run])
+    BuildFixed2 -->|No| CheckDocs2[Review build logs<br/>Verify all dependencies]
+
+    %% Flashing Issues Path
+    Category -->|Cannot Flash| FlashCheck{Error<br/>message?}
+    FlashCheck -->|No ST-LINK| FixSTLink[Check USB cable<br/>Install ST-LINK drivers<br/>Update ST-LINK firmware:<br/>Help → ST-LINK Upgrade]
+    FlashCheck -->|Launch sequence failed| RestartIDE[Unplug USB<br/>Close STM32CubeIDE<br/>Replug USB<br/>Restart IDE]
+    FlashCheck -->|Board appears dead| CheckPower[Verify PWR LED on<br/>Try different USB port<br/>Check for shorts<br/>Press RESET button]
+    FixSTLink --> TestFlash[Try Flashing Again]
+    RestartIDE --> TestFlash
+    CheckPower --> TestFlash
+    TestFlash --> FlashFixed{Fixed?}
+    FlashFixed -->|Yes| Success3([Firmware Flashed ✓])
+    FlashFixed -->|No| HardwareIssue[Possible hardware fault<br/>Try different Nucleo board]
+
+    %% Runtime Issues Path
+    Category -->|Runtime Issue| RuntimeType{Which<br/>component?}
+
+    RuntimeType -->|COM Port| COMCheck{Error<br/>type?}
+    COMCheck -->|Port not found| FindCOM[Check Device Manager<br/>Look for Virtual COM Port<br/>Update COM# in command]
+    COMCheck -->|Access denied| ClosePorts[Close other serial terminals<br/>Kill stale driver.exe<br/>Unplug/replug USB]
+    FindCOM --> TestCOM[Try Running Driver]
+    ClosePorts --> TestCOM
+    TestCOM --> COMFixed{Fixed?}
+    COMFixed -->|Yes| Success4([Driver Connected ✓])
+    COMFixed -->|No| DriverIssue[Check baud rate: 115200<br/>Test with serial terminal]
+
+    RuntimeType -->|SimConnect| SimConnectCheck[Is MSFS running<br/>and in a flight?]
+    SimConnectCheck -->|No| StartMSFS[Start MSFS 2024<br/>Load into flight<br/>Unpause game]
+    SimConnectCheck -->|Yes| VerifySDK[Verify SimConnect SDK installed<br/>Check Windows Firewall<br/>Update SDK path in .csproj]
+    StartMSFS --> TestSimConnect[Try Running Driver]
+    VerifySDK --> TestSimConnect
+    TestSimConnect --> SimConnectFixed{Fixed?}
+    SimConnectFixed -->|Yes| Success5([SimConnect Working ✓])
+    SimConnectFixed -->|No| ReinstallSDK[Reinstall MSFS SDK<br/>Rebuild driver]
+
+    RuntimeType -->|No Data from STM32| DataCheck{What's<br/>happening?}
+    DataCheck -->|Nothing received| CheckSerial[Verify COM port correct<br/>Press STM32 RESET button<br/>Test with serial terminal<br/>Check baud rate 115200]
+    DataCheck -->|Encoder not working| CheckEncoder[Verify encoder wiring:<br/>PA6→A, PA7→B, GND→GND<br/>Add 4.7kΩ pull-ups<br/>Test with multimeter]
+    DataCheck -->|Button not working| CheckButton[Verify button wiring:<br/>BTN_KNOB→SW, GND→GND<br/>Check pull-up enabled<br/>Test with multimeter]
+    CheckSerial --> TestData[Rotate Encoder]
+    CheckEncoder --> TestData
+    CheckButton --> TestData
+    TestData --> DataFixed{Fixed?}
+    DataFixed -->|Yes| Success6([Data Flowing ✓])
+    DataFixed -->|No| WiringIssue[Review PINOUT.md<br/>Check all connections<br/>Try different encoder]
+
+    RuntimeType -->|Encoder Issues| EncoderCheck{What's wrong<br/>with encoder?}
+    EncoderCheck -->|Wrong direction| SwapPins[Swap A and B connections:<br/>PA6 ↔ PA7]
+    EncoderCheck -->|Erratic counting| AddFiltering[Add 4.7kΩ pull-ups<br/>Add 100nF capacitors<br/>Shorten wires <15cm<br/>Move away from EMI sources]
+    EncoderCheck -->|Button bouncing| FixBounce[Increase debounce time<br/>Add 100nF capacitor<br/>Check firmware DEBOUNCE_TIME_MS]
+    SwapPins --> TestEncoder[Test Encoder]
+    AddFiltering --> TestEncoder
+    FixBounce --> TestEncoder
+    TestEncoder --> EncoderFixed{Fixed?}
+    EncoderFixed -->|Yes| Success7([Encoder Working ✓])
+    EncoderFixed -->|No| ReplaceEncoder[Try different encoder<br/>May be faulty hardware]
+
+    Category -->|Need Help| Documentation[Check Documentation:<br/>- PROTOCOL.md for protocol details<br/>- PINOUT.md for wiring<br/>- Build logs for error details]
+
+    style Start fill:#f8d7da
+    style Success1 fill:#d4edda
+    style Success2 fill:#d4edda
+    style Success3 fill:#d4edda
+    style Success4 fill:#d4edda
+    style Success5 fill:#d4edda
+    style Success6 fill:#d4edda
+    style Success7 fill:#d4edda
+    style Category fill:#fff3cd
+    style BuildType fill:#e1f5ff
+    style CSBuildCheck fill:#e1f5ff
+    style STM32BuildCheck fill:#e1f5ff
+    style RuntimeType fill:#e1f5ff
+    style Documentation fill:#d1ecf1
+```
 
 ### STM32 Firmware Issues
 

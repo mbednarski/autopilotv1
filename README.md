@@ -104,18 +104,57 @@ This project provides a professional-grade hardware interface for controlling MS
 
 ## Architecture Overview
 
-The system consists of three interconnected components:
+The system consists of three interconnected components working together to provide seamless hardware control of MSFS autopilot:
 
-```
-┌─────────────────┐   UART (115200)   ┌──────────────┐   SimConnect   ┌─────────────┐
-│  STM32 Firmware │ ←──────────────→  │  C# Driver   │ ←────────────→ │  MSFS 2024  │
-│   (dma2/)       │   Binary Protocol │  (driver/)   │   TCP/Network  │             │
-└─────────────────┘                    └──────────────┘                 └─────────────┘
-       ↓                                      ↓
-  ┌─────────┐                          ┌──────────┐
-  │  OLED   │                          │ Console  │
-  │ Display │                          │  Output  │
-  └─────────┘                          └──────────┘
+```mermaid
+graph TB
+    subgraph Hardware["STM32 Hardware (dma2/)"]
+        Encoder[Rotary Encoder<br/>TIM3 Quadrature Decoder]
+        Buttons[Push Buttons<br/>PC0-PC3 + BTN_KNOB]
+        OLED[OLED Display<br/>SSD1306 128x64<br/>I2C1]
+        UART_STM[UART DMA<br/>USART2 PA2/PA3]
+        StatusBits[Status Tracking<br/>AP_STATUS bits]
+
+        Encoder --> |Delta counts| UART_STM
+        Buttons -.-> |Future: Toggle cmds| UART_STM
+        UART_STM --> |AP status commands| StatusBits
+        StatusBits --> |Update display| OLED
+    end
+
+    subgraph PC["PC Driver Application (driver/)"]
+        SerialPort[Serial Port Handler<br/>Async Frame Parser]
+        Protocol[Protocol Layer<br/>Frame Validation<br/>Checksum Verification]
+        SimConnect[SimConnect Manager<br/>MSFS Integration]
+        StatusSync[Status Sync Logic<br/>State Change Detection]
+        Console[Console Interface<br/>Manual Commands]
+
+        SerialPort <--> |Raw bytes| Protocol
+        Protocol --> |Validated commands| SimConnect
+        SimConnect --> |Poll autopilot data| StatusSync
+        StatusSync --> |Status update cmds| Protocol
+        Protocol <--> |User input| Console
+    end
+
+    subgraph MSFS["Microsoft Flight Simulator 2024"]
+        Autopilot[Autopilot System<br/>Master, HDG, ALT, VS]
+        HeadingBug[Heading Bug<br/>HEADING_BUG_SET]
+        SimData[SimConnect Data<br/>AUTOPILOT_*]
+
+        HeadingBug --> Autopilot
+        Autopilot --> SimData
+    end
+
+    UART_STM <--> |"UART 115200 baud<br/>STM32→PC: [0xAA|CMD|OPR|CHK]<br/>PC→STM32: [0x88|CMD|CHK]"| SerialPort
+    SimConnect <--> |"SimConnect SDK<br/>Events & Data Requests<br/>TCP Network"| SimData
+    SimConnect --> |"HEADING_BUG_SET<br/>+/- delta"| HeadingBug
+
+    style Hardware fill:#e3f2fd
+    style PC fill:#f3e5f5
+    style MSFS fill:#e8f5e9
+    style Encoder fill:#fff9c4
+    style OLED fill:#fff9c4
+    style UART_STM fill:#ffccbc
+    style SimConnect fill:#ffccbc
 ```
 
 ### STM32 Firmware (dma2/Core/Src/main.c)
